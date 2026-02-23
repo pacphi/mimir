@@ -1,4 +1,4 @@
-import type { InstanceStatus } from "@sindri-console/shared";
+import type { InstanceStatus } from "@mimir/shared";
 
 const STATUS_STYLES: Record<InstanceStatus, string> = {
   RUNNING: "bg-green-500/15 text-green-700 dark:text-green-400",

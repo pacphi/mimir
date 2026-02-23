@@ -1,7 +1,7 @@
 {
-  "name": "@sindri-console/api",
+  "name": "@mimir/api",
   "version": "0.1.0",
-  "description": "Sindri Console Backend API",
+  "description": "Mimir Backend API",
   "private": true,
   "type": "module",
   "main": "dist/index.js",

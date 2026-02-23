@@ -21,8 +21,8 @@ COPY apps/api/prisma ./apps/api/prisma
 COPY packages/shared ./packages/shared
 
 # Generate Prisma client and compile TypeScript
-RUN pnpm --filter=@sindri-console/api exec prisma generate
-RUN pnpm --filter=@sindri-console/api run build
+RUN pnpm --filter=@mimir/api exec prisma generate
+RUN pnpm --filter=@mimir/api run build
 
 # ── Stage 2: runtime ──────────────────────────────────────────────────────────
 FROM node:24-alpine
@@ -65,7 +65,7 @@ COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/apps/api/prisma ./apps/api/prisma
 
 # Generate Prisma client against production node_modules
-RUN pnpm --filter=@sindri-console/api exec prisma generate
+RUN pnpm --filter=@mimir/api exec prisma generate
 
 COPY packages/shared/src ./packages/shared/src
 

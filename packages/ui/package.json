@@ -1,5 +1,5 @@
 {
-  "name": "@sindri-console/ui",
+  "name": "@mimir/ui",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@sindri-console/shared": "workspace:*"
+    "@mimir/shared": "workspace:*"
   },
   "peerDependencies": {
     "react": "^19.0.0",

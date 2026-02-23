@@ -1,4 +1,4 @@
-// @sindri-console/shared — public API
+// @mimir/shared — public API
 
 export * from "./types/instance.js";
 export * from "./types/heartbeat.js";

@@ -20,7 +20,7 @@ import type {
   TaskExecution,
   TaskExecutionStatus,
   ScheduledTaskStatus,
-} from "@sindri-console/shared";
+} from "@mimir/shared";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test Data (matches Prisma schema + shared types)

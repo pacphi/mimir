@@ -20,7 +20,7 @@ COPY packages/shared ./packages/shared
 COPY packages/ui ./packages/ui
 
 # Build the production React bundle
-RUN pnpm --filter=@sindri/console-web run build
+RUN pnpm --filter=@mimir/web run build
 
 # ── Stage 2: runtime (nginx) ──────────────────────────────────────────────────
 FROM nginx:1.28-alpine

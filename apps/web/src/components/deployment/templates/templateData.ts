@@ -6,9 +6,9 @@ export type TemplateCategory =
   | "cloud-native"
   | "data-engineering";
 
-// Structurally compatible with DeploymentTemplate from @sindri-console/shared.
+// Structurally compatible with DeploymentTemplate from @mimir/shared.
 // When that package is added as a web app dependency, this can be replaced with:
-//   import type { DeploymentTemplate } from '@sindri-console/shared'
+//   import type { DeploymentTemplate } from '@mimir/shared'
 //   export interface Template extends DeploymentTemplate { tags: string[] }
 export interface Template {
   id: string;

@@ -22,7 +22,7 @@ export const logger = pino({
       }
     : undefined,
   base: {
-    service: "sindri-console-api",
+    service: "mimir-api",
     env: process.env.NODE_ENV ?? "development",
   },
 });

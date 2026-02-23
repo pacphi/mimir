@@ -1,0 +1,9 @@
+# docker-compose.dev.yml — local-dev overlay
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  api:
+    environment:
+      LOG_LEVEL: debug

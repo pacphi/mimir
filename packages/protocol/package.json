@@ -1,0 +1,16 @@
+{
+  "name": "@mimir/protocol",
+  "version": "1.0.0",
+  "private": true,
+  "description": "JSON Schema contract definitions for the mimir WebSocket protocol",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  }
+}

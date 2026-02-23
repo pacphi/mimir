@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+.turbo/
+
+# Coverage
+coverage/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Database
+*.db
+*.sqlite*
+
+# Logs
+*.log
+npm-debug.log*
+
+# Prisma
+apps/api/src/generated/
+
+# Secrets
+*.pem
+*.key
+*.crt
+.claude/

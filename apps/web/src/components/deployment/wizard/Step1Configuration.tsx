@@ -95,7 +95,10 @@ export function Step1Configuration({ config, onChange }: Step1ConfigurationProps
         headers: { "Content-Type": "application/json" },
       })
         .then((r) => r.json())
-        .then((d: { providers: Array<{ id: string; name: string; description: string }> }) => d.providers),
+        .then(
+          (d: { providers: Array<{ id: string; name: string; description: string }> }) =>
+            d.providers,
+        ),
     staleTime: 300_000,
   });
 
@@ -115,10 +118,7 @@ export function Step1Configuration({ config, onChange }: Step1ConfigurationProps
     staleTime: 300_000,
   });
 
-  const {
-    data: categoryData,
-    isLoading: categoriesLoading,
-  } = useQuery({
+  const { data: categoryData, isLoading: categoriesLoading } = useQuery({
     queryKey: ["registry", "extensions", "categories"],
     queryFn: () =>
       fetch("/api/v1/registry/extensions/categories", {
@@ -149,17 +149,25 @@ export function Step1Configuration({ config, onChange }: Step1ConfigurationProps
       )
         .then((r) => r.json())
         .then((d: { extensions: RegistryExtension[]; total: number } | CliUnavailableResponse) => {
-          if ("fallback" in d) return { extensions: [] as RegistryExtension[], total: 0, unavailable: true };
+          if ("fallback" in d)
+            return { extensions: [] as RegistryExtension[], total: 0, unavailable: true };
           return { ...d, unavailable: false };
         }),
     staleTime: 60_000,
   });
 
   const profiles = profilesData?.profiles ?? [];
-  const profilesUnavailable = !profilesLoading && (profilesError || profilesData?.unavailable === true);
-  const categories = ["All", ...((!categoriesLoading && categoryData) ? categoryData.map((c: RegistryCategory) => c.category) : [])];
+  const profilesUnavailable =
+    !profilesLoading && (profilesError || profilesData?.unavailable === true);
+  const categories = [
+    "All",
+    ...(!categoriesLoading && categoryData
+      ? categoryData.map((c: RegistryCategory) => c.category)
+      : []),
+  ];
   const extensions = extensionData?.extensions ?? [];
-  const extensionsUnavailable = !extensionsLoading && (extensionsError || extensionData?.unavailable === true);
+  const extensionsUnavailable =
+    !extensionsLoading && (extensionsError || extensionData?.unavailable === true);
   const selectedExtensions = config.selectedExtensions ?? [];
 
   function handleSelectProvider(providerId: string) {
@@ -290,8 +298,8 @@ export function Step1Configuration({ config, onChange }: Step1ConfigurationProps
           <p className="text-sm text-muted-foreground">Loading profiles…</p>
         ) : profilesUnavailable ? (
           <p className="text-sm text-muted-foreground">
-            Profiles unavailable — build the{" "}
-            <code className="font-mono">sindri</code> binary and restart the stack.
+            Profiles unavailable — build the <code className="font-mono">sindri</code> binary and
+            restart the stack.
           </p>
         ) : profiles.length > 0 ? (
           <div className="flex flex-wrap gap-2">
@@ -392,8 +400,8 @@ export function Step1Configuration({ config, onChange }: Step1ConfigurationProps
             <p className="text-sm text-muted-foreground text-center py-4">Loading extensions…</p>
           ) : extensionsUnavailable ? (
             <p className="text-sm text-muted-foreground text-center py-4">
-              Extensions unavailable — build the{" "}
-              <code className="font-mono">sindri</code> binary and restart the stack.
+              Extensions unavailable — build the <code className="font-mono">sindri</code> binary
+              and restart the stack.
             </p>
           ) : extensions.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
@@ -439,11 +447,7 @@ export function Step1Configuration({ config, onChange }: Step1ConfigurationProps
       {/* ── E. YAML Editor ────────────────────────────────────────────── */}
       <div>
         <label className="text-sm font-medium block mb-2">Configuration YAML</label>
-        <SindriYamlEditor
-          value={config.yamlConfig}
-          onChange={handleYamlChange}
-          height={320}
-        />
+        <SindriYamlEditor value={config.yamlConfig} onChange={handleYamlChange} height={320} />
       </div>
     </div>
   );

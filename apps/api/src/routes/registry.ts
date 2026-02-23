@@ -134,15 +134,12 @@ registry.get("/profiles", rateLimitDefault, async (c) => {
 
     // Fan-out profile info calls in parallel to get extension arrays
     const details = await Promise.allSettled(
-      summaries.map((s) =>
-        runCliJson<CliProfileDetail>(["profile", "info", s.name]),
-      ),
+      summaries.map((s) => runCliJson<CliProfileDetail>(["profile", "info", s.name])),
     );
 
     const profiles = summaries.map((summary, i) => {
       const detail = details[i];
-      const extensions =
-        detail.status === "fulfilled" ? detail.value.extensions : [];
+      const extensions = detail.status === "fulfilled" ? detail.value.extensions : [];
       const totalWithDeps =
         detail.status === "fulfilled"
           ? (detail.value.total_with_dependencies ?? extensions.length)

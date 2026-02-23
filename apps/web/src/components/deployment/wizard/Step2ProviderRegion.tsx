@@ -16,9 +16,7 @@ export function Step2ProviderRegion({ config, onChange }: Step2ProviderRegionPro
         headers: { "Content-Type": "application/json" },
       })
         .then((r) => r.json())
-        .then(
-          (d: { regions: Array<{ id: string; name: string; location: string }> }) => d.regions,
-        ),
+        .then((d: { regions: Array<{ id: string; name: string; location: string }> }) => d.regions),
     enabled: Boolean(config.provider),
     staleTime: 300_000,
   });

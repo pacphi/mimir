@@ -114,6 +114,7 @@ describe("WebSocket Channel Protocol", () => {
 
     it("preserves optional correlationId and instanceId", () => {
       const raw = JSON.stringify({
+        protocolVersion: "1.0",
         channel: "terminal",
         type: "terminal:data",
         ts: Date.now(),

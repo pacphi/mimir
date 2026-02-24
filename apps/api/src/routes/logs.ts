@@ -52,7 +52,7 @@ const IngestLogSchema = z.object({
   level: LogLevelEnum,
   source: LogSourceEnum,
   message: z.string().min(1).max(10000),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
   deploymentId: z.string().max(128).optional(),
   timestamp: z.string().datetime().optional(),
 });

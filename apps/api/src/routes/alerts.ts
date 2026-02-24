@@ -119,7 +119,7 @@ const UpdateRuleSchema = CreateRuleSchema.partial().omit({});
 const WebhookConfigSchema = z.object({
   url: z.string().url(),
   method: z.enum(["POST", "PUT"]).optional(),
-  headers: z.record(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
   secret: z.string().max(256).optional(),
 });
 

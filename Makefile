@@ -4,6 +4,7 @@
 
 .PHONY: install build dev test test-coverage lint typecheck \
 	fmt fmt-check audit \
+	deps-upgrade deps-upgrade-interactive deps-outdated \
 	infra-up infra-down infra-reset infra-logs infra-status \
 	stack-build stack-up stack-down stack-nuke stack-logs stack-status stack-rebuild \
 	db-migrate db-migrate-deploy db-generate db-seed db-reset db-studio \
@@ -82,6 +83,24 @@ audit:
 	@echo "$(BLUE)Running pnpm security audit...$(RESET)"
 	pnpm audit
 	@echo "$(GREEN)✓ Security audit complete$(RESET)"
+
+# ============================================================================
+# Dependency Management
+# ============================================================================
+
+deps-upgrade:
+	@echo "$(BLUE)Upgrading npm dependencies to latest...$(RESET)"
+	pnpm update --recursive --latest
+	@echo "$(GREEN)✓ npm dependencies upgraded$(RESET)"
+
+deps-upgrade-interactive:
+	@echo "$(BLUE)Interactive npm dependency upgrade...$(RESET)"
+	pnpm update --recursive --interactive
+
+deps-outdated:
+	@echo "$(BLUE)Checking for outdated npm dependencies...$(RESET)"
+	pnpm outdated --recursive
+	@echo "$(GREEN)✓ Outdated check complete$(RESET)"
 
 # ============================================================================
 # Infrastructure (postgres + redis only)

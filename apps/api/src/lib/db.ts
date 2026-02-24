@@ -3,16 +3,29 @@
  *
  * A single PrismaClient instance is shared across the entire application to
  * avoid exhausting the PostgreSQL connection pool.
+ *
+ * Prisma 7 requires a driver adapter. We use @prisma/adapter-pg backed by the
+ * `pg` connection pool so the connection string stays in the environment.
  */
 
 import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { logger } from "./logger.js";
+
+function createAdapter() {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL environment variable is not set");
+  }
+  return new PrismaPg({ connectionString });
+}
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
 export const db: PrismaClient =
   globalForPrisma.prisma ??
   new PrismaClient({
+    adapter: createAdapter(),
     log:
       process.env.NODE_ENV === "development"
         ? [

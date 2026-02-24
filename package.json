@@ -40,6 +40,9 @@
       "@prisma/engines",
       "prisma"
     ],
+    "overrides": {
+      "lodash@>=4.0.0 <4.17.23": "4.17.23"
+    },
     "peerDependencyRules": {
       "allowedVersions": {
         "eslint-plugin-react-hooks>eslint": "10"

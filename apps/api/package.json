@@ -27,7 +27,7 @@
     "@hono/node-server": "^1.13.7",
     "@prisma/adapter-pg": "^7.4.1",
     "@prisma/client": "^7.4.1",
-    "hono": "^4.7.2",
+    "hono": "^4.11.10",
     "pg": "^8.16.3",
     "ioredis": "^5.4.2",
     "pino": "^10.3.1",

@@ -14,14 +14,14 @@ It originated as the `v3/console/` component of the Sindri monorepo and was esta
 
 Sindri (the CLI) is entirely instance-driven. Each instance is an island — deployed independently, managed independently, with no visibility across a fleet. Mimir closes that gap:
 
-| Without Mimir | With Mimir |
-|---|---|
-| No central registry of deployed instances | Web dashboard showing all instances across all providers |
-| No real-time health visibility | Live CPU, memory, disk, and network metrics per instance |
-| Terminal access requires SSH setup | Web-based terminal, no local tooling needed |
-| No audit trail | Every action logged with user, timestamp, target |
-| No fleet-wide operations | Parallel command dispatch, bulk lifecycle ops |
-| No cost visibility | Per-instance cost tracking with right-sizing recommendations |
+| Without Mimir                             | With Mimir                                                   |
+| ----------------------------------------- | ------------------------------------------------------------ |
+| No central registry of deployed instances | Web dashboard showing all instances across all providers     |
+| No real-time health visibility            | Live CPU, memory, disk, and network metrics per instance     |
+| Terminal access requires SSH setup        | Web-based terminal, no local tooling needed                  |
+| No audit trail                            | Every action logged with user, timestamp, target             |
+| No fleet-wide operations                  | Parallel command dispatch, bulk lifecycle ops                |
+| No cost visibility                        | Per-instance cost tracking with right-sizing recommendations |
 
 ---
 
@@ -41,36 +41,36 @@ Browser ──► Mimir Web (React 19)  ──► Mimir API (Hono)  ──► Ti
 
 #### Frontend (`apps/web`)
 
-| Library | Purpose |
-|---|---|
-| React 19 + Vite | Core framework |
-| TanStack Router | Type-safe routing, nested layouts |
-| TanStack Query | Server state, real-time refetch |
-| Zustand | Client state (terminal, UI) |
-| shadcn/ui + Radix | Accessible component primitives |
-| Tailwind CSS 4 | Styling |
-| xterm.js | Web terminal (PTY streaming) |
-| Monaco Editor | YAML/config editor with diff view |
-| Recharts | Charts and metrics dashboards |
+| Library           | Purpose                           |
+| ----------------- | --------------------------------- |
+| React 19 + Vite   | Core framework                    |
+| TanStack Router   | Type-safe routing, nested layouts |
+| TanStack Query    | Server state, real-time refetch   |
+| Zustand           | Client state (terminal, UI)       |
+| shadcn/ui + Radix | Accessible component primitives   |
+| Tailwind CSS 4    | Styling                           |
+| xterm.js          | Web terminal (PTY streaming)      |
+| Monaco Editor     | YAML/config editor with diff view |
+| Recharts          | Charts and metrics dashboards     |
 
 #### Backend (`apps/api`)
 
-| Library | Purpose |
-|---|---|
-| Hono | HTTP framework |
-| Prisma | ORM — type-safe database access |
+| Library                  | Purpose                                     |
+| ------------------------ | ------------------------------------------- |
+| Hono                     | HTTP framework                              |
+| Prisma                   | ORM — type-safe database access             |
 | TimescaleDB (PostgreSQL) | Time-series metric storage with hypertables |
-| Redis | Pub/sub for live metric streaming |
-| WebSocket (ws) | Real-time terminal, heartbeat, metrics |
-| Pino | Structured logging |
+| Redis                    | Pub/sub for live metric streaming           |
+| WebSocket (ws)           | Real-time terminal, heartbeat, metrics      |
+| Pino                     | Structured logging                          |
 
 #### Shared (`packages/`)
 
-| Package | Purpose |
-|---|---|
+| Package           | Purpose                                                      |
+| ----------------- | ------------------------------------------------------------ |
 | `@mimir/protocol` | WebSocket envelope and payload type definitions (TypeScript) |
-| `@mimir/shared` | Instance, heartbeat, deployment shared types |
-| `@mimir/ui` | Shared UI component library |
+| `@mimir/shared`   | Instance, heartbeat, deployment shared types                 |
+| `@mimir/ui`       | Shared UI component library                                  |
 
 ---
 
@@ -111,12 +111,12 @@ From the Mimir web UI, operators can:
 
 Step 1 was redesigned to align with the Sindri V3 CLI workflow:
 
-| Before | After |
-|---|---|
-| Hardcoded persona templates | Provider selector driving `config init`-style YAML generation |
-| Template-driven YAML population | Extensions multi-select from live registry (`/api/v1/extensions`) |
-| No extension browsing in wizard | Profile shortcuts from `/api/v1/profiles` endpoint |
-| Provider selection deferred to Step 2 | Provider selection on Step 1; Step 2 shows region only |
+| Before                                | After                                                             |
+| ------------------------------------- | ----------------------------------------------------------------- |
+| Hardcoded persona templates           | Provider selector driving `config init`-style YAML generation     |
+| Template-driven YAML population       | Extensions multi-select from live registry (`/api/v1/extensions`) |
+| No extension browsing in wizard       | Profile shortcuts from `/api/v1/profiles` endpoint                |
+| Provider selection deferred to Step 2 | Provider selection on Step 1; Step 2 shows region only            |
 
 ### Command Dispatch
 
@@ -200,21 +200,21 @@ All messages use the shared envelope format from `@mimir/protocol` (protocol ver
 
 **Instance-Level (from draupnir agent)**
 
-| Category | Metrics |
-|---|---|
-| CPU | Usage %, load average, process count |
-| Memory | Used/available/cached, swap usage |
-| Disk | Volume usage, inode usage, I/O throughput |
-| Network | Bytes in/out, active connections |
+| Category | Metrics                                   |
+| -------- | ----------------------------------------- |
+| CPU      | Usage %, load average, process count      |
+| Memory   | Used/available/cached, swap usage         |
+| Disk     | Volume usage, inode usage, I/O throughput |
+| Network  | Bytes in/out, active connections          |
 
 **Fleet-Level (aggregated by Mimir)**
 
-| Category | Metrics |
-|---|---|
-| Capacity | Total instances by provider/region, active vs idle ratio |
-| Cost | Spend by provider, spend by team |
-| Compliance | Extension version distribution, config drift count |
-| Trends | Environment creation rate, average lifespan, peak concurrency |
+| Category   | Metrics                                                       |
+| ---------- | ------------------------------------------------------------- |
+| Capacity   | Total instances by provider/region, active vs idle ratio      |
+| Cost       | Spend by provider, spend by team                              |
+| Compliance | Extension version distribution, config drift count            |
+| Trends     | Environment creation rate, average lifespan, peak concurrency |
 
 ### Dashboards
 
@@ -239,12 +239,12 @@ Mimir treats the Sindri CLI as a runtime dependency for registry queries. Instea
 
 ### Registry Endpoints
 
-| Endpoint | CLI command backed |
-|---|---|
-| `GET /api/v1/registry/extensions` | `sindri extension list --all --json` |
-| `GET /api/v1/registry/extensions/categories` | derived from extension list |
-| `GET /api/v1/registry/profiles` | `sindri profile list --json` |
-| `GET /api/v1/registry/version` | `sindri version --json` |
+| Endpoint                                     | CLI command backed                   |
+| -------------------------------------------- | ------------------------------------ |
+| `GET /api/v1/registry/extensions`            | `sindri extension list --all --json` |
+| `GET /api/v1/registry/extensions/categories` | derived from extension list          |
+| `GET /api/v1/registry/profiles`              | `sindri profile list --json`         |
+| `GET /api/v1/registry/version`               | `sindri version --json`              |
 
 ### Binary Delivery Modes
 
@@ -320,12 +320,12 @@ mimir/
 
 All four phases of the original roadmap are **complete**.
 
-| Phase | Scope | Status |
-|---|---|---|
-| 1 — Foundation | Instance registry, API auth, WebSocket gateway, web terminal, React app shell | ✅ Complete |
-| 2 — Orchestration | Deployment wizard, lifecycle ops (suspend/resume/destroy/clone/redeploy), command dispatch, scheduled tasks | ✅ Complete |
-| 3 — Observability | Metrics pipeline (TimescaleDB hypertables), fleet dashboard, instance detail charts, log aggregation, alerting engine | ✅ Complete |
-| 4 — Administration | RBAC, team workspaces, extension registry, drift detection, cost tracking, security/BOM dashboard | ✅ Complete |
+| Phase              | Scope                                                                                                                 | Status      |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------- | ----------- |
+| 1 — Foundation     | Instance registry, API auth, WebSocket gateway, web terminal, React app shell                                         | ✅ Complete |
+| 2 — Orchestration  | Deployment wizard, lifecycle ops (suspend/resume/destroy/clone/redeploy), command dispatch, scheduled tasks           | ✅ Complete |
+| 3 — Observability  | Metrics pipeline (TimescaleDB hypertables), fleet dashboard, instance detail charts, log aggregation, alerting engine | ✅ Complete |
+| 4 — Administration | RBAC, team workspaces, extension registry, drift detection, cost tracking, security/BOM dashboard                     | ✅ Complete |
 
 ### Known Docker Compose Issues (Resolved)
 
@@ -361,17 +361,17 @@ Health: http://localhost:3001/health
 
 ### Seeded Development Credentials
 
-| User | Email | API Key | Role |
-|---|---|---|---|
-| Admin | `admin@sindri.dev` | `sk-admin-dev-seed-key-0001` | ADMIN |
-| Developer | `developer@sindri.dev` | `sk-dev-seed-key-0001` | DEVELOPER |
+| User      | Email                  | API Key                      | Role      |
+| --------- | ---------------------- | ---------------------------- | --------- |
+| Admin     | `admin@sindri.dev`     | `sk-admin-dev-seed-key-0001` | ADMIN     |
+| Developer | `developer@sindri.dev` | `sk-dev-seed-key-0001`       | DEVELOPER |
 
 ---
 
 ## 11. Related Projects
 
-| Repository | Role |
-|---|---|
-| [sindri](https://github.com/pacphi/sindri) | CLI tool — provisions and configures instances; source of extension/profile registry |
-| [draupnir](https://github.com/pacphi/draupnir) | Per-instance agent — connects instances to mimir via WebSocket |
-| **mimir** (this repo) | Fleet management control plane — orchestrates, observes, and administers instances at scale |
+| Repository                                     | Role                                                                                        |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| [sindri](https://github.com/pacphi/sindri)     | CLI tool — provisions and configures instances; source of extension/profile registry        |
+| [draupnir](https://github.com/pacphi/draupnir) | Per-instance agent — connects instances to mimir via WebSocket                              |
+| **mimir** (this repo)                          | Fleet management control plane — orchestrates, observes, and administers instances at scale |

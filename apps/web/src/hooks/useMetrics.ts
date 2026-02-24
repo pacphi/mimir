@@ -25,6 +25,24 @@ export function useInstanceEvents(instanceId: string, limit = 50) {
 
 const MAX_REALTIME_POINTS = 300; // ~5 min at 1s intervals
 
+type RealtimePoints = {
+  cpu: MetricsDataPoint[];
+  memory: MetricsDataPoint[];
+  disk: MetricsDataPoint[];
+  network_in: MetricsDataPoint[];
+  network_out: MetricsDataPoint[];
+};
+
+function appendPoint<K extends keyof RealtimePoints>(
+  prev: RealtimePoints,
+  key: K,
+  point: MetricsDataPoint,
+): RealtimePoints {
+  const series = [...prev[key], point];
+  if (series.length > MAX_REALTIME_POINTS) series.splice(0, series.length - MAX_REALTIME_POINTS);
+  return { ...prev, [key]: series };
+}
+
 export function useMetricsTimeSeries(instanceId: string, range: TimeRange) {
   return useQuery({
     queryKey: ["metrics", "timeseries", instanceId, range],
@@ -50,13 +68,7 @@ export function useProcessList(instanceId: string) {
  * to a local ring buffer. Returns the latest N data points per metric.
  */
 export function useMetricsStream(instanceId: string) {
-  const [realtimePoints, setRealtimePoints] = useState<{
-    cpu: MetricsDataPoint[];
-    memory: MetricsDataPoint[];
-    disk: MetricsDataPoint[];
-    network_in: MetricsDataPoint[];
-    network_out: MetricsDataPoint[];
-  }>({
+  const [realtimePoints, setRealtimePoints] = useState<RealtimePoints>({
     cpu: [],
     memory: [],
     disk: [],
@@ -68,16 +80,6 @@ export function useMetricsStream(instanceId: string) {
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const MAX_RECONNECT = 5;
-
-  function appendPoint<K extends keyof typeof realtimePoints>(
-    prev: typeof realtimePoints,
-    key: K,
-    point: MetricsDataPoint,
-  ): typeof realtimePoints {
-    const series = [...prev[key], point];
-    if (series.length > MAX_REALTIME_POINTS) series.splice(0, series.length - MAX_REALTIME_POINTS);
-    return { ...prev, [key]: series };
-  }
 
   const handleMessage = useCallback(
     (event: MessageEvent) => {

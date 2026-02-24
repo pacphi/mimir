@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -38,10 +38,15 @@ export function DeploymentProgress({
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  // Stable refs so the WebSocket effect doesn't re-run when callbacks change
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
 
-  function addLog(message: string, type: ProgressLogEntry["type"] = "info") {
+  const addLog = useCallback((message: string, type: ProgressLogEntry["type"] = "info") => {
     setLogs((prev) => [...prev, { timestamp: new Date(), message, type }]);
-  }
+  }, []);
 
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -80,12 +85,12 @@ export function DeploymentProgress({
         addLog("Deployment complete!", "success");
         setProgress(100);
         setStatus("SUCCEEDED");
-        onComplete(data.instance_id);
+        onCompleteRef.current(data.instance_id);
       }
 
       if (data.type === "error") {
         setStatus("FAILED");
-        onError(data.message);
+        onErrorRef.current(data.message);
       }
     });
 
@@ -102,7 +107,7 @@ export function DeploymentProgress({
     return () => {
       ws.close();
     };
-  }, [deploymentId]);
+  }, [deploymentId, addLog]);
 
   const isFinal = status === "SUCCEEDED" || status === "FAILED" || status === "CANCELLED";
 

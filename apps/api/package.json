@@ -20,7 +20,7 @@
     "test:e2e": "vitest run --include 'tests/*.test.ts'",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "lint": "eslint src tests --ext .ts",
+    "lint": "eslint src tests",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

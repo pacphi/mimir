@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Terminal } from "./Terminal";
 import { TerminalTabs } from "./TerminalTabs";
 import { BroadcastMode } from "./BroadcastMode";
@@ -63,55 +63,7 @@ export function MultiTerminal({
   // sendData refs for broadcast: tabId -> sendData function
   const sendDataRefs = useRef<Map<string, (data: string) => void>>(new Map());
 
-  const instanceMap = new Map(instances.map((i) => [i.id, i]));
-
-  // Restore persisted sessions on mount
-  useEffect(() => {
-    const state = loadSessionState();
-    if (state && state.sessions.length > 0) {
-      // Rebuild tabs from persisted state (sessions may need reconnection)
-      const restoredTabs: TerminalTab[] = state.sessions.map((s, idx) => ({
-        id: s.tabId,
-        sessionId: s.sessionId,
-        instanceId: s.instanceId,
-        instanceName: s.instanceName,
-        title: s.title,
-        status: "connecting" as const,
-        isActive: idx === 0,
-        groupId: s.groupId,
-      }));
-
-      if (restoredTabs.length > 0) {
-        setTabs(restoredTabs);
-        const activeId = state.activeTabId ?? restoredTabs[0].id;
-        setActiveTabId(activeId);
-        if (restoredTabs.length > 1) {
-          setSplitLayout(createLeafPane(restoredTabs[0].id) as PaneNode);
-        }
-      }
-
-      if (state.groups.length > 0) {
-        setGroups(state.groups);
-      }
-      return;
-    }
-
-    // No persisted state - create a default session for the primary instance
-    createTabForInstance(primaryInstanceId);
-  }, []);
-
-  // Sync broadcast targets with tabs
-  useEffect(() => {
-    setBroadcastTargets((prev) => {
-      const existingMap = new Map(prev.map((t) => [t.tabId, t]));
-      return tabs.map((tab) => ({
-        tabId: tab.id,
-        instanceId: tab.instanceId,
-        instanceName: `${tab.instanceName} (${tab.title})`,
-        enabled: existingMap.get(tab.id)?.enabled ?? true,
-      }));
-    });
-  }, [tabs]);
+  const instanceMap = useMemo(() => new Map(instances.map((i) => [i.id, i])), [instances]);
 
   const createTabForInstance = useCallback(
     async (instanceId: string) => {
@@ -151,8 +103,61 @@ export function MultiTerminal({
         setIsCreating(false);
       }
     },
-    [isCreating, instances],
+    [isCreating, instanceMap],
   );
+
+  // Restore persisted sessions on mount, or open first tab for primary instance.
+  // hasRunRef guards against re-running when createTabForInstance identity changes.
+  const hasRunRef = useRef(false);
+  useEffect(() => {
+    if (hasRunRef.current) return;
+    hasRunRef.current = true;
+
+    const state = loadSessionState();
+    if (state && state.sessions.length > 0) {
+      // Rebuild tabs from persisted state (sessions may need reconnection)
+      const restoredTabs: TerminalTab[] = state.sessions.map((s, idx) => ({
+        id: s.tabId,
+        sessionId: s.sessionId,
+        instanceId: s.instanceId,
+        instanceName: s.instanceName,
+        title: s.title,
+        status: "connecting" as const,
+        isActive: idx === 0,
+        groupId: s.groupId,
+      }));
+
+      if (restoredTabs.length > 0) {
+        setTabs(restoredTabs);
+        const activeId = state.activeTabId ?? restoredTabs[0].id;
+        setActiveTabId(activeId);
+        if (restoredTabs.length > 1) {
+          setSplitLayout(createLeafPane(restoredTabs[0].id) as PaneNode);
+        }
+      }
+
+      if (state.groups.length > 0) {
+        setGroups(state.groups);
+      }
+      return;
+    }
+
+    // No persisted state - create a default session for the primary instance
+    void createTabForInstance(primaryInstanceId);
+  }, [createTabForInstance, primaryInstanceId]);
+
+  // Sync broadcast targets with tabs
+  useEffect(() => {
+    setBroadcastTargets((prev) => {
+      const existingMap = new Map(prev.map((t) => [t.tabId, t]));
+      return tabs.map((tab) => ({
+        tabId: tab.id,
+        instanceId: tab.instanceId,
+        instanceName: `${tab.instanceName} (${tab.title})`,
+        enabled: existingMap.get(tab.id)?.enabled ?? true,
+      }));
+    });
+  }, [tabs]);
 
   const createTab = useCallback(async () => {
     return createTabForInstance(primaryInstanceId);

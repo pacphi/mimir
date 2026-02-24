@@ -35,6 +35,9 @@ export function Terminal({
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  // Capture initial theme for XTerm constructor; subsequent changes are handled
+  // by the separate theme-update effect without recreating the terminal.
+  const initialThemeRef = useRef(theme);
   // Track xterm readiness as state so the WebSocket hook re-runs when it's mounted
   const [xtermInstance, setXtermInstance] = useState<XTerm | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
@@ -51,7 +54,7 @@ export function Terminal({
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const termTheme = theme === "dark" ? darkTheme : lightTheme;
+    const termTheme = initialThemeRef.current === "dark" ? darkTheme : lightTheme;
 
     const xterm = new XTerm({
       theme: termTheme,

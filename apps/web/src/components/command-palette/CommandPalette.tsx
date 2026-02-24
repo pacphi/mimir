@@ -27,7 +27,7 @@ export function CommandPalette() {
   const listRef = useRef<HTMLDivElement>(null);
 
   const { data: instanceData } = useInstances({}, 1, 100);
-  const allInstances = instanceData?.instances ?? [];
+  const allInstances = useMemo(() => instanceData?.instances ?? [], [instanceData?.instances]);
 
   const actions = useMemo(
     () =>

@@ -87,11 +87,14 @@ export function TerminalManager({
     setTabs((prev) => prev.map((t) => (t.id === tabId ? { ...t, status } : t)));
   }, []);
 
-  // Auto-create first session on mount
+  // Auto-create first session on mount.
+  // hasRunRef guards against re-running when createTab identity changes.
+  const hasRunRef = useRef(false);
   useEffect(() => {
-    createTab();
-    // Only run on mount
-  }, []);
+    if (hasRunRef.current) return;
+    hasRunRef.current = true;
+    void createTab();
+  }, [createTab]);
 
   return (
     <div className={`flex flex-col h-full ${className ?? ""}`}>

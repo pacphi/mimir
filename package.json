@@ -39,6 +39,11 @@
     "onlyBuiltDependencies": [
       "@prisma/engines",
       "prisma"
-    ]
+    ],
+    "peerDependencyRules": {
+      "allowedVersions": {
+        "eslint-plugin-react-hooks>eslint": "10"
+      }
+    }
   }
 }

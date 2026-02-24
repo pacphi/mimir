@@ -4,5 +4,7 @@ dist/
 coverage/
 # Prisma generates this file — don't reformat it
 apps/api/src/generated/
+# TanStack Router auto-generated route tree
+apps/web/src/routeTree.gen.ts
 # pnpm lock file
 pnpm-lock.yaml

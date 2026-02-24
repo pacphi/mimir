@@ -21,11 +21,14 @@
     "infra:up": "docker compose up -d postgres redis",
     "infra:down": "docker compose down",
     "infra:reset": "docker compose down -v && docker compose up -d postgres redis",
-    "infra:logs": "docker compose logs -f"
+    "infra:logs": "docker compose logs -f",
+    "prepare": "husky"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "eslint": "^10.0.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7",
     "prettier": "^3.8.1",
     "turbo": "^2.8.10",
     "typescript-eslint": "^8.56.0"
@@ -33,6 +36,10 @@
   "engines": {
     "node": ">=24.0.0",
     "pnpm": ">=10.0.0"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,json,css,md,yaml,yml}": "prettier --check",
+    "*.{ts,tsx,js}": "eslint --no-warn-ignored"
   },
   "packageManager": "pnpm@10.30.0",
   "pnpm": {

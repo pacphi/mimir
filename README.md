@@ -1,5 +1,9 @@
 # Mimir
 
+[![License](https://img.shields.io/github/license/pacphi/mimir)](LICENSE)
+[![CI](https://github.com/pacphi/mimir/actions/workflows/ci.yml/badge.svg)](https://github.com/pacphi/mimir/actions/workflows/ci.yml)
+[![Release](https://github.com/pacphi/mimir/actions/workflows/release.yml/badge.svg)](https://github.com/pacphi/mimir/actions/workflows/release.yml)
+
 Fleet management control plane for [Sindri](https://github.com/pacphi/sindri) environments.
 
 Mimir provides a web dashboard and REST/WebSocket API for orchestrating, administering, and observing Sindri-managed instances across providers.

@@ -36,6 +36,9 @@
   },
   "packageManager": "pnpm@10.30.0",
   "pnpm": {
-    "onlyBuiltDependencies": ["@prisma/engines", "prisma"]
+    "onlyBuiltDependencies": [
+      "@prisma/engines",
+      "prisma"
+    ]
   }
 }

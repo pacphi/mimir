@@ -50,7 +50,8 @@
       "prisma"
     ],
     "overrides": {
-      "lodash@>=4.0.0 <4.17.23": "4.17.23"
+      "lodash@>=4.0.0 <4.17.23": "4.17.23",
+      "hono@<4.11.10": "^4.12.2"
     },
     "peerDependencyRules": {
       "allowedVersions": {

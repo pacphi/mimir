@@ -49,6 +49,10 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Dead code scan (knip)
+        continue-on-error: true
+        run: pnpm deadcode
+
       - name: Unit tests
         run: pnpm test
 

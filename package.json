@@ -22,12 +22,14 @@
     "infra:down": "docker compose down",
     "infra:reset": "docker compose down -v && docker compose up -d postgres redis",
     "infra:logs": "docker compose logs -f",
-    "prepare": "husky"
+    "prepare": "husky",
+    "deadcode": "knip --no-exit-code"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "eslint": "^10.0.1",
     "husky": "^9.1.7",
+    "knip": "^5.85.0",
     "lint-staged": "^16.2.7",
     "prettier": "^3.8.1",
     "turbo": "^2.8.10",

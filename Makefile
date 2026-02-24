@@ -3,7 +3,7 @@
 # ============================================================================
 
 .PHONY: install build dev test test-coverage lint typecheck \
-	fmt fmt-check audit \
+	fmt fmt-check audit deadcode \
 	deps-upgrade deps-upgrade-interactive deps-outdated \
 	infra-up infra-down infra-reset infra-logs infra-status \
 	stack-build stack-up stack-down stack-nuke stack-logs stack-status stack-rebuild \
@@ -200,6 +200,15 @@ db-reset:
 db-studio:
 	@echo "$(BLUE)Opening Prisma Studio...$(RESET)"
 	pnpm db:studio
+
+# ============================================================================
+# Dead Code Detection
+# ============================================================================
+
+deadcode:
+	@echo "$(BLUE)Scanning for dead code (knip)...$(RESET)"
+	pnpm deadcode
+	@echo "$(GREEN)✓ Dead code scan complete$(RESET)"
 
 # ============================================================================
 # Clean & CI

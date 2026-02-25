@@ -67,6 +67,21 @@ mimir/
 make ci    # format-check, lint, typecheck, test, build
 ```
 
+## Documentation
+
+- [Getting Started](docs/GETTING_STARTED.md) — prerequisites, setup, environment variables
+- [Architecture](docs/ARCHITECTURE.md) — system design, tech stack, data flow
+- [API Reference](docs/API_REFERENCE.md) — REST endpoints, auth, pagination
+- [WebSocket Protocol](docs/WEBSOCKET_PROTOCOL.md) — real-time channels, envelope format
+- [Database Schema](docs/DATABASE_SCHEMA.md) — models, enumerations, TimescaleDB notes
+- [Versioning](docs/VERSIONING.md) — Sindri CLI version tracking and compatibility
+- [Maintainer Guide](docs/MAINTAINER.md) — local Sindri CLI workflows, Make targets
+- [Contributing](docs/CONTRIBUTING.md) — development workflow, code style, testing
+- [Security](docs/SECURITY.md) — vulnerability reporting, RBAC, API key security
+- [Troubleshooting](docs/TROUBLESHOOTING.md) — common issues and solutions
+- [Release Process](docs/RELEASE.md) — tagging, versioning, Docker images
+- [Changelog](CHANGELOG.md) — release history
+
 ## Related Projects
 
 - [sindri](https://github.com/pacphi/sindri) — CLI tool + extension ecosystem

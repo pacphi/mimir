@@ -2,13 +2,83 @@
 # Mimir — Fleet Management Control Plane
 # ============================================================================
 
-.PHONY: install build dev test test-coverage lint typecheck \
+.PHONY: help install build dev dev-full test test-coverage lint typecheck \
 	fmt fmt-check audit deadcode \
 	deps-upgrade deps-upgrade-interactive deps-outdated \
 	infra-up infra-down infra-reset infra-logs infra-status \
 	stack-build stack-up stack-down stack-nuke stack-logs stack-status stack-rebuild \
 	db-migrate db-migrate-deploy db-generate db-seed db-reset db-studio \
 	clean ci
+
+# ============================================================================
+# Default Target
+# ============================================================================
+
+.DEFAULT_GOAL := help
+
+help:
+	@echo "$(BOLD)$(BLUE)╔════════════════════════════════════════════════════════════════════╗$(RESET)"
+	@echo "$(BOLD)$(BLUE)║                           Mimir Makefile                           ║$(RESET)"
+	@echo "$(BOLD)$(BLUE)╚════════════════════════════════════════════════════════════════════╝$(RESET)"
+	@echo ""
+	@echo "$(BOLD)Quick Start:$(RESET)"
+	@echo "  make install           - Install pnpm dependencies"
+	@echo "  make dev               - Start dev servers (API + Web)"
+	@echo "  make dev-full          - Start infra + dev servers"
+	@echo "  make ci                - Run full CI pipeline"
+	@echo "  make test              - Run test suite"
+	@echo ""
+	@echo "$(BOLD)$(BLUE)═══ Install & Build ═════════════════════════════════════════════════$(RESET)"
+	@echo "  install                - Install pnpm dependencies"
+	@echo "  build                  - Build API + Web"
+	@echo "  dev                    - Start dev servers (API + Web, parallel)"
+	@echo "  dev-full               - Start infra, then dev servers"
+	@echo ""
+	@echo "$(BOLD)$(BLUE)═══ Test ════════════════════════════════════════════════════════════$(RESET)"
+	@echo "  test                   - Run test suite"
+	@echo "  test-coverage          - Run tests with coverage report"
+	@echo ""
+	@echo "$(BOLD)$(BLUE)═══ Lint & Format ═══════════════════════════════════════════════════$(RESET)"
+	@echo "  lint                   - Lint TypeScript code (ESLint)"
+	@echo "  fmt                    - Format code (Prettier)"
+	@echo "  fmt-check              - Check code formatting (Prettier)"
+	@echo "  typecheck              - Run TypeScript type checks"
+	@echo "  audit                  - Run pnpm security audit"
+	@echo "  deadcode               - Scan for dead code (knip)"
+	@echo ""
+	@echo "$(BOLD)$(BLUE)═══ Dependency Management ═══════════════════════════════════════════$(RESET)"
+	@echo "  deps-upgrade           - Upgrade npm dependencies to latest"
+	@echo "  deps-upgrade-interactive - Interactive npm dependency upgrade"
+	@echo "  deps-outdated          - Check for outdated npm dependencies"
+	@echo ""
+	@echo "$(BOLD)$(BLUE)═══ Infrastructure (postgres + redis) ══════════════════════════════$(RESET)"
+	@echo "  infra-up               - Start postgres + redis"
+	@echo "  infra-down             - Stop infrastructure"
+	@echo "  infra-reset            - Reset infrastructure (destroys volumes)"
+	@echo "  infra-logs             - Follow infrastructure logs"
+	@echo "  infra-status           - Show infrastructure status"
+	@echo ""
+	@echo "$(BOLD)$(BLUE)═══ Full Stack (Docker Compose) ═════════════════════════════════════$(RESET)"
+	@echo "  stack-build            - Build Docker images (api + web)"
+	@echo "  stack-up               - Start full stack (postgres + redis + api + web)"
+	@echo "  stack-down             - Stop full stack"
+	@echo "  stack-nuke             - Stop stack and destroy all volumes"
+	@echo "  stack-logs             - Follow full stack logs"
+	@echo "  stack-status           - Show stack status"
+	@echo "  stack-rebuild          - Rebuild images (no cache) and restart"
+	@echo ""
+	@echo "$(BOLD)$(BLUE)═══ Database ════════════════════════════════════════════════════════$(RESET)"
+	@echo "  db-migrate             - Run database migrations (dev)"
+	@echo "  db-migrate-deploy      - Deploy database migrations (production-style)"
+	@echo "  db-generate            - Generate Prisma client"
+	@echo "  db-seed                - Seed database"
+	@echo "  db-reset               - Reset database (all data lost)"
+	@echo "  db-studio              - Open Prisma Studio"
+	@echo ""
+	@echo "$(BOLD)$(BLUE)═══ Clean & CI ══════════════════════════════════════════════════════$(RESET)"
+	@echo "  clean                  - Clean build artifacts"
+	@echo "  ci                     - Run full CI (fmt-check + lint + typecheck + test + build)"
+	@echo ""
 
 # ── Color codes ──────────────────────────────────────────────────────────────
 BLUE    := \033[0;34m

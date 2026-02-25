@@ -5,14 +5,127 @@ on:
     tags:
       - "v*"
 
-jobs:
-  build-and-push:
-    name: Build & Push Docker Images
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
+permissions:
+  contents: write
+  packages: write
 
+jobs:
+  # ── Job 1: Validate tag format ─────────────────────────────────────
+  validate-tag:
+    name: Validate Tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.parse.outputs.version }}
+      is_prerelease: ${{ steps.parse.outputs.is_prerelease }}
+    steps:
+      - name: Parse and validate tag
+        id: parse
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          echo "Tag: $TAG"
+
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]]; then
+            echo "::error::Invalid tag format: $TAG (expected v<major>.<minor>.<patch>[-prerelease])"
+            exit 1
+          fi
+
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          if [[ "$VERSION" == *-* ]]; then
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "Pre-release detected: $VERSION"
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "Stable release: $VERSION"
+          fi
+
+  # ── Job 2: Full CI gate ─────────────────────────────────────────────
+  ci:
+    name: CI Gate
+    needs: [validate-tag]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "store=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v5
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Type check
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Production build
+        run: pnpm build
+
+  # ── Job 3: Generate changelog ───────────────────────────────────────
+  generate-changelog:
+    name: Generate Changelog
+    needs: [validate-tag]
+    runs-on: ubuntu-latest
+    outputs:
+      changelog_file: changelog-${{ needs.validate-tag.outputs.version }}.md
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        run: |
+          chmod +x .github/scripts/generate-changelog.sh
+          .github/scripts/generate-changelog.sh \
+            "${{ needs.validate-tag.outputs.version }}" \
+            "changelog-${{ needs.validate-tag.outputs.version }}.md"
+
+      - name: Upload changelog artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: changelog
+          path: changelog-${{ needs.validate-tag.outputs.version }}.md
+
+  # ── Job 4: Build and push Docker images ─────────────────────────────
+  docker-images:
+    name: Docker Images
+    needs: [validate-tag, ci]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - app: api
+            dockerfile: apps/api/Dockerfile
+          - app: web
+            dockerfile: apps/web/Dockerfile
     steps:
       - uses: actions/checkout@v6
 
@@ -26,30 +139,77 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract version from tag
-        id: version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+      - name: Generate image tags
+        id: tags
+        run: |
+          VERSION="${{ needs.validate-tag.outputs.version }}"
+          IS_PRE="${{ needs.validate-tag.outputs.is_prerelease }}"
+          IMAGE="ghcr.io/${{ github.repository }}/${{ matrix.app }}"
 
-      - name: Build and push API image
+          TAGS="${IMAGE}:${VERSION}"
+
+          if [[ "$IS_PRE" == "false" ]]; then
+            MAJOR_MINOR=$(echo "$VERSION" | cut -d. -f1,2)
+            TAGS="${TAGS},${IMAGE}:${MAJOR_MINOR},${IMAGE}:latest"
+          fi
+
+          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: apps/api/Dockerfile
+          file: ${{ matrix.dockerfile }}
           push: true
-          tags: |
-            ghcr.io/${{ github.repository }}/api:${{ steps.version.outputs.version }}
-            ghcr.io/${{ github.repository }}/api:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
 
-      - name: Build and push Web image
-        uses: docker/build-push-action@v6
+  # ── Job 5: Create GitHub Release + update CHANGELOG.md ─────────────
+  create-release:
+    name: Create Release
+    needs: [validate-tag, ci, generate-changelog, docker-images]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
         with:
-          context: .
-          file: apps/web/Dockerfile
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}/web:${{ steps.version.outputs.version }}
-            ghcr.io/${{ github.repository }}/web:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download changelog artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: changelog
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: changelog-${{ needs.validate-tag.outputs.version }}.md
+          prerelease: ${{ needs.validate-tag.outputs.is_prerelease == 'true' }}
+          generate_release_notes: false
+
+      - name: Update CHANGELOG.md
+        run: |
+          VERSION="${{ needs.validate-tag.outputs.version }}"
+          CHANGELOG_FILE="changelog-${VERSION}.md"
+          MARKER="<!-- This file is auto-maintained by the release workflow on each tag. -->"
+
+          if grep -q "$MARKER" CHANGELOG.md; then
+            # Insert new entry after the marker line
+            sed -i "/$MARKER/r $CHANGELOG_FILE" CHANGELOG.md
+            # Add a blank line after the marker before the new content
+            sed -i "/$MARKER/a\\" CHANGELOG.md
+          else
+            # Append to end of file
+            echo "" >> CHANGELOG.md
+            cat "$CHANGELOG_FILE" >> CHANGELOG.md
+          fi
+
+      - name: Push CHANGELOG.md update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git diff --cached --quiet && exit 0
+          git commit -m "docs: update CHANGELOG.md for v${{ needs.validate-tag.outputs.version }} [skip ci]"
+          git push origin HEAD:main

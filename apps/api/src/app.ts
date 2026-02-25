@@ -32,6 +32,9 @@ import { secretsRouter } from "./routes/secrets.js";
 import { profilesRouter } from "./routes/profiles.js";
 import { registryRouter } from "./routes/registry.js";
 import { versionRouter } from "./routes/version.js";
+import { authRouter } from "./routes/auth.js";
+import { meRouter } from "./routes/me.js";
+import { devAuthMiddleware, isDevAuthBypassEnabled } from "./middleware/devAuth.js";
 import { logger } from "./lib/logger.js";
 
 export function createApp(): Hono {
@@ -55,9 +58,19 @@ export function createApp(): Hono {
 
   app.use("*", secureHeaders());
 
+  // Dev auth bypass — auto-authenticate as seed admin in development
+  if (isDevAuthBypassEnabled()) {
+    logger.warn("Dev auth bypass enabled — all requests authenticated as seed admin");
+    app.use("/api/v1/*", devAuthMiddleware);
+  }
+
   // ── Routes ─────────────────────────────────────────────────────────────────
 
+  // Auth routes are public (they handle their own auth)
+  app.route("/api/auth", authRouter);
+
   app.route("/health", healthRouter);
+  app.route("/api/v1/me", meRouter);
   app.route("/api/v1/instances", instancesRouter);
   app.route("/api/v1/instances", lifecycleRouter);
   app.route("/api/v1/commands", commandsRouter);

@@ -131,7 +131,35 @@ Users can spawn interactive shells in the browser connected to any running insta
 
 ---
 
-## 5. Administration Capabilities
+## 5. Authentication & Authorization
+
+### Authentication (ADR-0002)
+
+Mimir uses **Better Auth** for passwordless authentication with three login methods:
+
+1. **GitHub OIDC** — primary for developer teams
+2. **Google OIDC** — alternative for Google Workspace orgs
+3. **Magic link email** — passwordless fallback via Resend
+
+Sessions are server-side (PostgreSQL-backed), delivered as HttpOnly cookies with SameSite protection. The existing API key auth is preserved for CLI and CI/CD usage.
+
+**Dual-mode middleware**: The auth middleware tries API key first (Authorization header), then session cookie. Both paths set the same `AuthContext` used by all downstream handlers.
+
+**Dev bypass**: `AUTH_BYPASS=true` in development auto-authenticates as the seed admin user without needing OAuth credentials configured.
+
+### Authorization (ADR-0003)
+
+Four-tier role hierarchy: **VIEWER < DEVELOPER < OPERATOR < ADMIN**
+
+- New users auto-provision as VIEWER (least privilege)
+- First user auto-promoted to ADMIN
+- Team-scoped visibility: non-admins see only their team's instances + unassigned
+- Team membership can elevate effective role (global VIEWER + team DEVELOPER = DEVELOPER on team instances)
+- All roles can manage their own API keys via `/api/v1/me/api-keys`
+
+---
+
+## 6. Administration Capabilities
 
 ### User & Access Management
 
@@ -164,7 +192,7 @@ Users can spawn interactive shells in the browser connected to any running insta
 
 ---
 
-## 6. Observability Capabilities
+## 7. Observability Capabilities
 
 ### Real-Time Architecture
 
@@ -233,7 +261,7 @@ Delivered via webhook, Slack, email, or PagerDuty.
 
 ---
 
-## 7. CLI Integration
+## 8. CLI Integration
 
 Mimir treats the Sindri CLI as a runtime dependency for registry queries. Instead of maintaining stale TypeScript constants, the API shells out to the `sindri` binary and returns live JSON output.
 
@@ -274,7 +302,7 @@ Draupnir agents report `sindri_version` and `cli_target` in heartbeat payloads. 
 
 ---
 
-## 8. Project Structure
+## 9. Project Structure
 
 ```
 mimir/
@@ -316,9 +344,9 @@ mimir/
 
 ---
 
-## 9. Implementation Status (as of February 2026)
+## 10. Implementation Status (as of February 2026)
 
-All four phases of the original roadmap are **complete**.
+All five phases of the original roadmap are **complete**.
 
 | Phase              | Scope                                                                                                                 | Status      |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------- | ----------- |
@@ -326,6 +354,7 @@ All four phases of the original roadmap are **complete**.
 | 2 — Orchestration  | Deployment wizard, lifecycle ops (suspend/resume/destroy/clone/redeploy), command dispatch, scheduled tasks           | ✅ Complete |
 | 3 — Observability  | Metrics pipeline (TimescaleDB hypertables), fleet dashboard, instance detail charts, log aggregation, alerting engine | ✅ Complete |
 | 4 — Administration | RBAC, team workspaces, extension registry, drift detection, cost tracking, security/BOM dashboard                     | ✅ Complete |
+| 5 — Authentication | OIDC (GitHub + Google), magic link email, session management, login UI, route guards, team-scoped access, audit hooks | ✅ Complete |
 
 ### Known Docker Compose Issues (Resolved)
 
@@ -335,11 +364,11 @@ The following were discovered and fixed during initial Docker Compose bring-up:
 2. **Duplicate migration 002** — `ScheduledTask`/`TaskExecution` already existed in migration 001; migration 002 replaced with a no-op `SELECT 1;`
 3. **Wrong postgres image** — TimescaleDB required; changed to `timescale/timescaledb:latest-pg16`
 4. **`Heartbeat` primary key incompatible with hypertable** — primary key changed to `(id, timestamp)` to satisfy TimescaleDB partition constraint
-5. **Frontend auth not wired** — dev mode uses nginx proxy injection (`X-Api-Key`) until a real login flow is added
+5. ~~**Frontend auth not wired** — dev mode uses nginx proxy injection (`X-Api-Key`) until a real login flow is added~~ — resolved in Phase 5 (Better Auth + login page)
 
 ---
 
-## 10. Running Locally
+## 11. Running Locally
 
 ```bash
 # Prerequisites: Node.js 24+, pnpm 10+, Docker
@@ -368,7 +397,7 @@ Health: http://localhost:3001/health
 
 ---
 
-## 11. Related Projects
+## 12. Related Projects
 
 | Repository                                     | Role                                                                                        |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------- |

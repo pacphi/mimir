@@ -1,4 +1,4 @@
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   LayoutDashboard,
   Server,
@@ -18,6 +18,7 @@ import {
   Shield,
   Package,
   GitCompare,
+  LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUIStore } from "@/stores/uiStore";
@@ -25,6 +26,7 @@ import { useThemeStore } from "@/stores/themeStore";
 import { useCommandPaletteStore } from "@/stores/commandPaletteStore";
 import { Button } from "@/components/ui/button";
 import { AlertNotifications } from "@/components/alerts/AlertNotifications";
+import { signOut, useSession } from "@/lib/auth-client";
 
 const NAV_ITEMS = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -140,6 +142,7 @@ export function Sidebar() {
         <div className={cn("flex", collapsed ? "justify-center" : "justify-end px-1 pb-1")}>
           <AlertNotifications />
         </div>
+        <UserMenu collapsed={collapsed} />
         <Button
           variant="ghost"
           size={collapsed ? "icon" : "sm"}
@@ -163,5 +166,60 @@ export function Sidebar() {
         )}
       </div>
     </aside>
+  );
+}
+
+function UserMenu({ collapsed }: { collapsed: boolean }) {
+  const { data: session } = useSession();
+  const navigate = useNavigate();
+
+  if (!session?.user) return null;
+
+  const user = session.user;
+  const displayName = user.name || user.email;
+  const role = (user as unknown as { role?: string }).role;
+  const initial = (user.name?.[0] || user.email[0] || "U").toUpperCase();
+
+  async function handleSignOut() {
+    await signOut();
+    navigate({ to: "/login" });
+  }
+
+  return (
+    <div className="space-y-1">
+      <Link
+        to="/settings"
+        className={cn(
+          "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+          collapsed && "justify-center px-2",
+        )}
+        title={collapsed ? displayName : undefined}
+      >
+        {user.image ? (
+          <img src={user.image} alt="" className="h-5 w-5 rounded-full shrink-0" />
+        ) : (
+          <div className="h-5 w-5 rounded-full bg-muted flex items-center justify-center shrink-0">
+            <span className="text-[10px] font-medium">{initial}</span>
+          </div>
+        )}
+        {!collapsed && (
+          <div className="flex-1 min-w-0">
+            <div className="text-xs truncate">{displayName}</div>
+            {role && <div className="text-[10px] text-muted-foreground">{role}</div>}
+          </div>
+        )}
+      </Link>
+
+      <Button
+        variant="ghost"
+        size={collapsed ? "icon" : "sm"}
+        onClick={handleSignOut}
+        className={cn("w-full", collapsed ? "h-9 w-9 mx-auto flex" : "justify-start gap-3 px-3")}
+        title={collapsed ? "Sign out" : undefined}
+      >
+        <LogOut className="h-4 w-4 shrink-0" />
+        {!collapsed && <span>Sign out</span>}
+      </Button>
+    </div>
   );
 }

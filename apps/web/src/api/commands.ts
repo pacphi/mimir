@@ -11,6 +11,7 @@ const API_BASE = "/api/v1";
 export async function dispatchCommand(req: DispatchCommandRequest): Promise<CommandExecution> {
   const response = await fetch(`${API_BASE}/commands`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),
   });
@@ -28,6 +29,7 @@ export async function dispatchBulkCommand(
 ): Promise<{ results: BulkCommandResult[] }> {
   const response = await fetch(`${API_BASE}/commands/bulk`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),
   });
@@ -45,6 +47,7 @@ export async function dispatchScript(
 ): Promise<{ results: BulkCommandResult[] }> {
   const response = await fetch(`${API_BASE}/commands/script`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),
   });
@@ -72,7 +75,9 @@ export async function getCommandHistory(params?: {
   if (params?.pageSize) search.set("pageSize", String(params.pageSize));
   if (params?.status) search.set("status", params.status);
 
-  const response = await fetch(`${API_BASE}/commands/history?${search.toString()}`);
+  const response = await fetch(`${API_BASE}/commands/history?${search.toString()}`, {
+    credentials: "include",
+  });
 
   if (!response.ok) {
     throw new Error("Failed to fetch command history");
@@ -82,7 +87,9 @@ export async function getCommandHistory(params?: {
 }
 
 export async function getCommandExecution(id: string): Promise<CommandExecution> {
-  const response = await fetch(`${API_BASE}/commands/${id}`);
+  const response = await fetch(`${API_BASE}/commands/${id}`, {
+    credentials: "include",
+  });
 
   if (!response.ok) {
     throw new Error(`Failed to fetch command execution ${id}`);

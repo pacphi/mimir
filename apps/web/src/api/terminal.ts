@@ -5,6 +5,7 @@ const API_BASE = "/api/v1";
 export async function createTerminalSession(instanceId: string): Promise<CreateSessionResponse> {
   const response = await fetch(`${API_BASE}/instances/${instanceId}/terminal`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
   });
 
@@ -21,6 +22,7 @@ export async function createTerminalSession(instanceId: string): Promise<CreateS
 export async function closeTerminalSession(instanceId: string, sessionId: string): Promise<void> {
   const response = await fetch(`${API_BASE}/instances/${instanceId}/terminal/${sessionId}`, {
     method: "DELETE",
+    credentials: "include",
   });
 
   if (!response.ok && response.status !== 404) {

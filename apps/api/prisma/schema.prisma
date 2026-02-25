@@ -275,15 +275,19 @@ model User {
   id            String   @id @default(cuid())
   email         String   @unique
   name          String?
-  password_hash String   // bcrypt hash; null if SSO-only
-  role          UserRole @default(DEVELOPER)
-  is_active     Boolean  @default(true)
-  last_login_at DateTime?
-  created_at    DateTime @default(now())
-  updated_at    DateTime @updatedAt
+  password_hash  String?  // bcrypt hash; null for SSO-only users
+  role           UserRole @default(VIEWER)
+  is_active      Boolean  @default(true)
+  email_verified Boolean  @default(false)
+  image          String?  // Avatar URL from OAuth provider
+  last_login_at  DateTime?
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
 
   // Relations
   api_keys           ApiKey[]
+  sessions           Session[]
+  accounts           Account[]
   terminal_sessions  TerminalSession[]
   command_executions CommandExecution[]
   team_memberships   TeamMember[]
@@ -292,6 +296,58 @@ model User {
   @@index([email])
   @@index([role])
   @@index([is_active])
+}
+
+/// Server-side session storage, referenced by HttpOnly cookie.
+model Session {
+  id         String   @id @default(cuid())
+  user_id    String
+  token      String   @unique
+  ip_address String?
+  user_agent String?
+  expires_at DateTime
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([token])
+  @@index([expires_at])
+}
+
+/// Links external OAuth identities (GitHub, Google) to local users.
+model Account {
+  id                    String   @id @default(cuid())
+  user_id               String
+  account_id            String   // Provider-side user ID
+  provider_id           String   // "github" | "google" | "credential"
+  access_token          String?
+  refresh_token         String?
+  access_token_expires_at DateTime?
+  refresh_token_expires_at DateTime?
+  scope                 String?
+  id_token              String?
+  password              String?  // For credential provider (hashed)
+  created_at            DateTime @default(now())
+  updated_at            DateTime @updatedAt
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([provider_id, account_id])
+  @@index([user_id])
+}
+
+/// Magic link tokens and email verification.
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String   // email address
+  value      String   // hashed token
+  expires_at DateTime
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([identifier])
 }
 
 /// A team workspace grouping instances and users.

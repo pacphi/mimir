@@ -18,6 +18,7 @@ import {
   deregisterInstance,
 } from "../services/instances.js";
 import { logger } from "../lib/logger.js";
+import { getVisibleInstanceFilter } from "../lib/team-scope.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Zod schemas
@@ -107,7 +108,12 @@ instances.get("/", rateLimitDefault, async (c) => {
   }
 
   try {
-    const result = await listInstances(queryResult.data);
+    const auth = c.get("auth");
+    const teamScope = await getVisibleInstanceFilter(auth.userId, auth.role);
+    const result = await listInstances({
+      ...queryResult.data,
+      teamScope: teamScope as Record<string, unknown> | undefined,
+    });
     return c.json({
       instances: result.instances.map(serializeInstance),
       pagination: {

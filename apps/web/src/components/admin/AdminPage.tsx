@@ -5,27 +5,43 @@ import { TeamsPage } from "./TeamsPage";
 import { PermissionMatrix } from "./PermissionMatrix";
 import { AuditLogViewer } from "./AuditLogViewer";
 import { SettingsPage } from "./SettingsPage";
+import { ProfileTab } from "./ProfileTab";
+import { ApiKeysTab } from "./ApiKeysTab";
 import { cn } from "@/lib/utils";
-import { Users, Shield, ScrollText, Settings, Building2 } from "lucide-react";
+import { Users, Shield, ScrollText, Settings, Building2, User, Key } from "lucide-react";
+import { useSession } from "@/lib/auth-client";
 
-type AdminTab = "settings" | "users" | "teams" | "permissions" | "audit";
+type AdminTab = "profile" | "api-keys" | "settings" | "users" | "teams" | "permissions" | "audit";
 
-const TABS: { id: AdminTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+interface TabDef {
+  id: AdminTab;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  adminOnly?: boolean;
+}
+
+const TABS: TabDef[] = [
+  { id: "profile", label: "Profile", icon: User },
+  { id: "api-keys", label: "API Keys", icon: Key },
   { id: "settings", label: "Settings", icon: Settings },
-  { id: "users", label: "Users", icon: Users },
-  { id: "teams", label: "Teams", icon: Building2 },
-  { id: "permissions", label: "Permissions", icon: Shield },
-  { id: "audit", label: "Audit Log", icon: ScrollText },
+  { id: "users", label: "Users", icon: Users, adminOnly: true },
+  { id: "teams", label: "Teams", icon: Building2, adminOnly: true },
+  { id: "permissions", label: "Permissions", icon: Shield, adminOnly: true },
+  { id: "audit", label: "Audit Log", icon: ScrollText, adminOnly: true },
 ];
 
 export function AdminPage() {
-  const [activeTab, setActiveTab] = useState<AdminTab>("settings");
+  const [activeTab, setActiveTab] = useState<AdminTab>("profile");
+  const { data: session } = useSession();
+  const userRole = (session?.user as unknown as { role?: string } | undefined)?.role;
+  const isAdmin = userRole === "ADMIN";
+
+  const visibleTabs = TABS.filter((tab) => !tab.adminOnly || isAdmin);
 
   return (
     <div className="flex h-full">
-      {/* Tab sidebar */}
       <div className="w-48 shrink-0 border-r border-border p-2 space-y-1">
-        {TABS.map(({ id, label, icon: Icon }) => (
+        {visibleTabs.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             onClick={() => setActiveTab(id)}
@@ -42,13 +58,14 @@ export function AdminPage() {
         ))}
       </div>
 
-      {/* Tab content */}
       <div className="flex-1 overflow-auto">
+        {activeTab === "profile" && <ProfileTab />}
+        {activeTab === "api-keys" && <ApiKeysTab />}
         {activeTab === "settings" && <SettingsPage />}
-        {activeTab === "users" && <UsersPage />}
-        {activeTab === "teams" && <TeamsPage />}
-        {activeTab === "permissions" && <PermissionMatrix />}
-        {activeTab === "audit" && <AuditLogViewer />}
+        {activeTab === "users" && isAdmin && <UsersPage />}
+        {activeTab === "teams" && isAdmin && <TeamsPage />}
+        {activeTab === "permissions" && isAdmin && <PermissionMatrix />}
+        {activeTab === "audit" && isAdmin && <AuditLogViewer />}
       </div>
     </div>
   );

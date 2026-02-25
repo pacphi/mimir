@@ -5,20 +5,9 @@ import type {
   FleetLogStats,
   LogFiltersState,
 } from "@/types/log";
+import { apiFetch } from "@/lib/api-fetch";
 
 const API_BASE = "/api/v1";
-
-async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    ...options,
-  });
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ message: response.statusText }));
-    throw new Error((err as { message?: string }).message ?? `Request failed: ${response.status}`);
-  }
-  return response.json() as Promise<T>;
-}
 
 function buildLogParams(filters: LogFiltersState, page: number, pageSize: number): URLSearchParams {
   const params = new URLSearchParams();

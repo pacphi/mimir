@@ -29,6 +29,8 @@ export interface ListInstancesFilter {
   region?: string;
   page?: number;
   pageSize?: number;
+  /** Team scope filter — injected by route layer for non-admin users */
+  teamScope?: Record<string, unknown>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -95,7 +97,9 @@ export async function listInstances(filter: ListInstancesFilter = {}): Promise<{
   const pageSize = Math.min(100, Math.max(1, filter.pageSize ?? 20));
   const skip = (page - 1) * pageSize;
 
-  const where: Prisma.InstanceWhereInput = {};
+  const where: Prisma.InstanceWhereInput = {
+    ...(filter.teamScope as Prisma.InstanceWhereInput | undefined),
+  };
   if (filter.provider) where.provider = filter.provider;
   if (filter.status) where.status = filter.status;
   if (filter.region) where.region = filter.region;

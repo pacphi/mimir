@@ -36,14 +36,14 @@ interface AgentConnection {
   ws: WebSocket;
   instanceId: string;
   userId: string;
-  apiKeyId: string;
+  apiKeyId?: string;
   connectedAt: Date;
 }
 
 interface BrowserConnection {
   ws: WebSocket;
   userId: string;
-  apiKeyId: string;
+  apiKeyId?: string;
   // Set of instance IDs this client is subscribed to
   subscriptions: Set<string>;
   connectedAt: Date;

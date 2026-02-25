@@ -1,0 +1,229 @@
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiFetch } from "@/lib/api-fetch";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Key, Plus, Trash2, Copy, Check, Loader2, AlertTriangle } from "lucide-react";
+
+interface ApiKeyInfo {
+  id: string;
+  name: string;
+  created_at: string;
+  expires_at: string | null;
+}
+
+interface CreateApiKeyResponse extends ApiKeyInfo {
+  key: string;
+}
+
+export function ApiKeysTab() {
+  const queryClient = useQueryClient();
+  const [showCreate, setShowCreate] = useState(false);
+  const [newKeyName, setNewKeyName] = useState("");
+  const [expiryDays, setExpiryDays] = useState<string>("");
+  const [createdKey, setCreatedKey] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["me", "api-keys"],
+    queryFn: () => apiFetch<{ data: ApiKeyInfo[]; total: number }>("/me/api-keys"),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (input: { name: string; expires_in_days?: number }) =>
+      apiFetch<CreateApiKeyResponse>("/me/api-keys", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    onSuccess: (data) => {
+      setCreatedKey(data.key);
+      setNewKeyName("");
+      setExpiryDays("");
+      queryClient.invalidateQueries({ queryKey: ["me", "api-keys"] });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => apiFetch(`/me/api-keys/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["me", "api-keys"] });
+    },
+  });
+
+  function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newKeyName.trim()) return;
+    const days = expiryDays ? parseInt(expiryDays, 10) : undefined;
+    createMutation.mutate({
+      name: newKeyName.trim(),
+      expires_in_days: days && days > 0 ? days : undefined,
+    });
+  }
+
+  function handleCopy() {
+    if (createdKey) {
+      navigator.clipboard.writeText(createdKey);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }
+
+  function isExpired(expiresAt: string | null): boolean {
+    if (!expiresAt) return false;
+    return new Date(expiresAt) < new Date();
+  }
+
+  return (
+    <div className="p-6 max-w-2xl space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold mb-1">API Keys</h2>
+          <p className="text-sm text-muted-foreground">
+            Manage API keys for CLI and programmatic access.
+          </p>
+        </div>
+        {!showCreate && !createdKey && (
+          <Button size="sm" onClick={() => setShowCreate(true)}>
+            <Plus className="h-4 w-4 mr-1" />
+            Create key
+          </Button>
+        )}
+      </div>
+
+      {createdKey && (
+        <div className="rounded-md border border-primary/30 bg-primary/5 p-4 space-y-3">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+            <div className="text-sm">
+              <p className="font-medium">Save this key now — it won't be shown again.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 bg-muted px-3 py-2 rounded text-xs font-mono break-all">
+              {createdKey}
+            </code>
+            <Button size="sm" variant="outline" onClick={handleCopy}>
+              {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+            </Button>
+          </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setCreatedKey(null);
+              setShowCreate(false);
+            }}
+          >
+            Done
+          </Button>
+        </div>
+      )}
+
+      {showCreate && !createdKey && (
+        <form onSubmit={handleCreate} className="rounded-md border p-4 space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="key-name">Key name</Label>
+            <Input
+              id="key-name"
+              placeholder="e.g. CI Pipeline, Local Development"
+              value={newKeyName}
+              onChange={(e) => setNewKeyName(e.target.value)}
+              required
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="key-expiry">Expiry (days, optional)</Label>
+            <Input
+              id="key-expiry"
+              type="number"
+              placeholder="Leave empty for non-expiring"
+              value={expiryDays}
+              onChange={(e) => setExpiryDays(e.target.value)}
+              min={1}
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button type="submit" size="sm" disabled={createMutation.isPending}>
+              {createMutation.isPending && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
+              Create
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setShowCreate(false);
+                setNewKeyName("");
+                setExpiryDays("");
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+          {createMutation.isError && (
+            <p className="text-sm text-destructive">
+              {createMutation.error?.message || "Failed to create key"}
+            </p>
+          )}
+        </form>
+      )}
+
+      {isLoading ? (
+        <div className="flex items-center justify-center h-32">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : data?.data.length === 0 ? (
+        <div className="text-center py-12 text-sm text-muted-foreground">
+          <Key className="h-8 w-8 mx-auto mb-3 opacity-50" />
+          <p>No API keys yet.</p>
+          <p>Create one to use with the CLI or CI/CD pipelines.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {data?.data.map((key) => (
+            <div
+              key={key.id}
+              className="flex items-center gap-3 rounded-md border px-4 py-3 text-sm"
+            >
+              <Key className="h-4 w-4 text-muted-foreground shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="font-medium">{key.name}</div>
+                <div className="text-xs text-muted-foreground">
+                  Created {new Date(key.created_at).toLocaleDateString()}
+                  {key.expires_at && (
+                    <>
+                      {" · "}
+                      {isExpired(key.expires_at) ? (
+                        <span className="text-destructive">Expired</span>
+                      ) : (
+                        <>Expires {new Date(key.expires_at).toLocaleDateString()}</>
+                      )}
+                    </>
+                  )}
+                  {!key.expires_at && " · Never expires"}
+                </div>
+              </div>
+              {isExpired(key.expires_at) && (
+                <Badge variant="destructive" className="text-xs">
+                  Expired
+                </Badge>
+              )}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                onClick={() => deleteMutation.mutate(key.id)}
+                disabled={deleteMutation.isPending}
+                title="Revoke key"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

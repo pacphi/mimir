@@ -24,6 +24,14 @@
 | `SINDRI_CLI_TIMEOUT_MS`  | `30000`                                         | Timeout for Sindri CLI commands                   |
 | `LOG_LEVEL`              | `info`                                          | Pino log level (`debug`, `info`, `warn`, `error`) |
 | `NODE_ENV`               | `development`                                   | Environment mode                                  |
+| `AUTH_BYPASS`            | —                                               | Set to `true` for dev auto-login (dev only)       |
+| `BETTER_AUTH_URL`        | `http://localhost:3001`                         | Base URL for auth callbacks                       |
+| `GITHUB_CLIENT_ID`       | —                                               | GitHub OAuth client ID (optional)                 |
+| `GITHUB_CLIENT_SECRET`   | —                                               | GitHub OAuth client secret (optional)             |
+| `GOOGLE_CLIENT_ID`       | —                                               | Google OAuth client ID (optional)                 |
+| `GOOGLE_CLIENT_SECRET`   | —                                               | Google OAuth client secret (optional)             |
+| `RESEND_API_KEY`         | —                                               | Resend API key for magic link emails (optional)   |
+| `EMAIL_FROM`             | `noreply@sindri.dev`                            | Sender address for magic link emails              |
 | `METRICS_RETENTION_DAYS` | `30`                                            | Metrics data retention                            |
 | `LOGS_RETENTION_DAYS`    | `14`                                            | Log data retention                                |
 | `EVENTS_RETENTION_DAYS`  | `90`                                            | Event data retention                              |
@@ -75,6 +83,8 @@ This starts both the API server (`http://localhost:3001`) and the web app (`http
 
 Open [http://localhost:5173](http://localhost:5173) in your browser.
 
+> **Authentication:** For local development, set `AUTH_BYPASS=true` in your `.env` to skip OAuth setup. For setting up GitHub/Google OIDC and magic link email, see the [Maintainer Guide — Authentication Setup](./MAINTAINER.md#authentication-setup).
+
 ## Docker Compose (Full Stack)
 
 To run everything in containers (no local Node.js required after building):
@@ -120,3 +130,5 @@ See the [Makefile](../Makefile) for the full list of targets.
 - [Architecture](./ARCHITECTURE.md) — system design and tech stack
 - [API Reference](./API_REFERENCE.md) — REST endpoint documentation
 - [Contributing](./CONTRIBUTING.md) — development workflow and conventions
+- [Maintainer Guide](./MAINTAINER.md) — OAuth provider setup, auth bypass, Sindri CLI integration
+- [RBAC](./RBAC.md) — role-based access control and permission matrix

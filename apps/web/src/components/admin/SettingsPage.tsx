@@ -46,7 +46,7 @@ export function SettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle>API Connection</CardTitle>
-          <CardDescription>Configure the Sindri Console API endpoint</CardDescription>
+          <CardDescription>Configure the Mimir API endpoint</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="text-sm text-muted-foreground">

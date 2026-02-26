@@ -110,6 +110,12 @@ async function trySessionAuth(c: Context): Promise<AuthContext | null> {
 }
 
 export async function authMiddleware(c: Context, next: Next): Promise<Response | void> {
+  // If auth context is already set (e.g. by dev bypass middleware), skip
+  if (c.get("auth")) {
+    await next();
+    return;
+  }
+
   const apiKeyResult = await tryApiKeyAuth(c);
   if (apiKeyResult.ok) {
     c.set("auth", apiKeyResult.auth);

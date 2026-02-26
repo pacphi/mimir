@@ -1,5 +1,5 @@
 /**
- * WebSocket channel definitions for the Sindri Console real-time layer.
+ * WebSocket channel definitions for the Mimir real-time layer.
  *
  * Channel architecture (from design doc section 7):
  *   Console <──ws://──> Instance Agent

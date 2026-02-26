@@ -1,4 +1,4 @@
-// Prisma schema for Sindri Console
+// Prisma schema for Mimir
 // PostgreSQL primary database for instance registry, observability, and administration
 
 generator client {

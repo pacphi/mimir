@@ -15,9 +15,10 @@
 
 import Redis from "ioredis";
 import { logger } from "./logger.js";
+import { getRedisUrl } from "./env.js";
 
 function createRedisClient(name: string): Redis {
-  const url = process.env.REDIS_URL ?? "redis://localhost:6379";
+  const url = getRedisUrl();
   const client = new Redis(url, {
     lazyConnect: true,
     maxRetriesPerRequest: 3,

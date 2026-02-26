@@ -31,98 +31,6 @@ interface CliProfileDetail {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Static fallback (used when CLI is unavailable)
-// ─────────────────────────────────────────────────────────────────────────────
-
-const STATIC_PROFILES = [
-  {
-    name: "minimal",
-    description: "Minimal development setup",
-    extensions: ["nodejs", "python"],
-    extension_count: 2,
-  },
-  {
-    name: "fullstack",
-    description: "Full-stack web development",
-    extensions: ["nodejs", "python", "docker", "nodejs-devtools"],
-    extension_count: 4,
-  },
-  {
-    name: "anthropic-dev",
-    description: "AI development with Anthropic toolset bias (v3 default - 10x performance)",
-    extensions: [
-      "claude-cli",
-      "agent-manager",
-      "claude-flow-v3",
-      "agentic-qe",
-      "kilo",
-      "ralph",
-      "golang",
-      "ollama",
-      "ai-toolkit",
-      "claudish",
-      "claude-marketplace",
-      "compahook",
-      "infra-tools",
-      "jvm",
-      "mdflow",
-      "openskills",
-      "pal-mcp-server",
-      "nodejs-devtools",
-      "playwright",
-      "agent-browser",
-      "rust",
-      "ruvnet-research",
-      "linear-mcp",
-      "supabase-cli",
-      "tmux-workspace",
-      "cloud-tools",
-      "notebooklm-mcp-cli",
-      "ruvector-cli",
-      "rvf-cli",
-    ],
-    extension_count: 29,
-  },
-  {
-    name: "systems",
-    description: "Systems programming",
-    extensions: ["rust", "golang", "haskell", "docker", "infra-tools"],
-    extension_count: 5,
-  },
-  {
-    name: "enterprise",
-    description: "Enterprise development (all languages)",
-    extensions: [
-      "claude-cli",
-      "kilo",
-      "nodejs",
-      "python",
-      "golang",
-      "rust",
-      "ruby",
-      "jvm",
-      "dotnet",
-      "docker",
-      "jira-mcp",
-      "cloud-tools",
-    ],
-    extension_count: 12,
-  },
-  {
-    name: "devops",
-    description: "DevOps and infrastructure",
-    extensions: ["docker", "infra-tools", "monitoring", "cloud-tools"],
-    extension_count: 4,
-  },
-  {
-    name: "mobile",
-    description: "Mobile development",
-    extensions: ["nodejs", "swift", "linear-mcp", "supabase-cli"],
-    extension_count: 4,
-  },
-];
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Router
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -155,11 +63,14 @@ profiles.get("/", rateLimitDefault, async (c) => {
     return c.json({ profiles: liveProfiles });
   } catch (err) {
     if (err instanceof CliNotFoundError || err instanceof CliTimeoutError) {
-      logger.warn({ err }, "Profiles CLI unavailable — returning static fallback");
-      return c.json({ profiles: STATIC_PROFILES, fallback: true });
+      logger.warn({ err }, "Profiles CLI unavailable");
+      return c.json(
+        { error: "CLI_UNAVAILABLE", message: "Sindri CLI is not reachable", profiles: [] },
+        503,
+      );
     }
     logger.error({ err }, "Failed to fetch profiles from CLI");
-    return c.json({ profiles: STATIC_PROFILES, fallback: true });
+    return c.json({ error: "CLI_ERROR", message: "Failed to fetch profiles", profiles: [] }, 502);
   }
 });
 

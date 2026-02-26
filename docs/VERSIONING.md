@@ -76,7 +76,7 @@ Returns HTTP 503 with `{ "error": "CLI_UNAVAILABLE", "fallback": true }` when th
 
 | Environment Variable    | Default | Description                          |
 | ----------------------- | ------- | ------------------------------------ |
-| `SINDRI_BIN_PATH`       | —       | Explicit path to the `sindri` binary |
+| `SINDRI_BIN_PATH`       | —       | Absolute path to the `sindri` binary |
 | `SINDRI_CLI_TIMEOUT_MS` | `15000` | Execution timeout in milliseconds    |
 
 Mimir does not bundle or pin a specific Sindri CLI version — `@sindri/cli` is not listed as a dependency in `package.json`. The binary is expected to be provided externally by the operator.

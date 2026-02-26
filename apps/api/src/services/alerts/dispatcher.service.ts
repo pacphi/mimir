@@ -146,7 +146,7 @@ export const dispatcher = {
       instanceId: null,
       severity: "INFO",
       title: "Test Notification",
-      message: "This is a test notification from Sindri Console.",
+      message: "This is a test notification from Mimir.",
       status: "ACTIVE",
       firedAt: new Date().toISOString(),
     };
@@ -241,7 +241,7 @@ async function sendSlack(config: SlackChannelConfig, payload: AlertPayload): Pro
             : []),
           { title: "Fired At", value: new Date(payload.firedAt).toLocaleString(), short: true },
         ],
-        footer: "Sindri Console",
+        footer: "Mimir",
         ts: Math.floor(new Date(payload.firedAt).getTime() / 1000),
       },
     ],

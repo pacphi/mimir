@@ -11,31 +11,38 @@
 
 ## Environment Variables
 
-| Variable                 | Default                                         | Description                                       |
-| ------------------------ | ----------------------------------------------- | ------------------------------------------------- |
-| `DATABASE_URL`           | `postgresql://mimir:mimir@localhost:5432/mimir` | PostgreSQL connection string                      |
-| `REDIS_URL`              | `redis://localhost:6379`                        | Redis connection string                           |
-| `PORT`                   | `3001`                                          | API server port                                   |
-| `CORS_ORIGIN`            | `http://localhost:5173`                         | Allowed CORS origin (web app URL)                 |
-| `JWT_SECRET`             | —                                               | Secret for JWT signing                            |
-| `SESSION_SECRET`         | —                                               | Session encryption secret                         |
-| `MIMIR_API_KEY`          | —                                               | Bootstrap API key for seeding                     |
-| `SINDRI_BIN_PATH`        | —                                               | Path to Sindri CLI binary (optional)              |
-| `SINDRI_CLI_TIMEOUT_MS`  | `30000`                                         | Timeout for Sindri CLI commands                   |
-| `LOG_LEVEL`              | `info`                                          | Pino log level (`debug`, `info`, `warn`, `error`) |
-| `NODE_ENV`               | `development`                                   | Environment mode                                  |
-| `AUTH_BYPASS`            | —                                               | Set to `true` for dev auto-login (dev only)       |
-| `BETTER_AUTH_URL`        | `http://localhost:3001`                         | Base URL for auth callbacks                       |
-| `GITHUB_CLIENT_ID`       | —                                               | GitHub OAuth client ID (optional)                 |
-| `GITHUB_CLIENT_SECRET`   | —                                               | GitHub OAuth client secret (optional)             |
-| `GOOGLE_CLIENT_ID`       | —                                               | Google OAuth client ID (optional)                 |
-| `GOOGLE_CLIENT_SECRET`   | —                                               | Google OAuth client secret (optional)             |
-| `RESEND_API_KEY`         | —                                               | Resend API key for magic link emails (optional)   |
-| `EMAIL_FROM`             | `noreply@sindri.dev`                            | Sender address for magic link emails              |
-| `METRICS_RETENTION_DAYS` | `30`                                            | Metrics data retention                            |
-| `LOGS_RETENTION_DAYS`    | `14`                                            | Log data retention                                |
-| `EVENTS_RETENTION_DAYS`  | `90`                                            | Event data retention                              |
-| `AUDIT_RETENTION_DAYS`   | `365`                                           | Audit log retention                               |
+| Variable                 | Default                 | Description                                       |
+| ------------------------ | ----------------------- | ------------------------------------------------- |
+| `POSTGRES_USER`          | `mimir`                 | PostgreSQL user                                   |
+| `POSTGRES_PASSWORD`      | —                       | PostgreSQL password (**required**)                |
+| `POSTGRES_HOST`          | `localhost`             | PostgreSQL host                                   |
+| `POSTGRES_PORT`          | `5432`                  | PostgreSQL port                                   |
+| `POSTGRES_DB`            | `mimir`                 | PostgreSQL database name                          |
+| `REDIS_HOST`             | `localhost`             | Redis host                                        |
+| `REDIS_PORT`             | `6379`                  | Redis port                                        |
+| `DATABASE_URL`           | _(auto-constructed)_    | Full PostgreSQL URL (overrides `POSTGRES_*` vars) |
+| `REDIS_URL`              | _(auto-constructed)_    | Full Redis URL (overrides `REDIS_*` vars)         |
+| `PORT`                   | `3001`                  | API server port                                   |
+| `CORS_ORIGIN`            | `http://localhost:5173` | Allowed CORS origin (web app URL)                 |
+| `JWT_SECRET`             | —                       | Secret for JWT signing                            |
+| `SESSION_SECRET`         | —                       | Session encryption secret                         |
+| `MIMIR_API_KEY`          | —                       | Bootstrap API key for seeding                     |
+| `SINDRI_BIN_PATH`        | —                       | Absolute path to Sindri CLI binary (optional)     |
+| `SINDRI_CLI_TIMEOUT_MS`  | `30000`                 | Timeout for Sindri CLI commands                   |
+| `LOG_LEVEL`              | `info`                  | Pino log level (`debug`, `info`, `warn`, `error`) |
+| `NODE_ENV`               | `development`           | Environment mode                                  |
+| `AUTH_BYPASS`            | —                       | Set to `true` for dev auto-login (dev only)       |
+| `BETTER_AUTH_URL`        | `http://localhost:3001` | Base URL for auth callbacks                       |
+| `GITHUB_CLIENT_ID`       | —                       | GitHub OAuth client ID (optional)                 |
+| `GITHUB_CLIENT_SECRET`   | —                       | GitHub OAuth client secret (optional)             |
+| `GOOGLE_CLIENT_ID`       | —                       | Google OAuth client ID (optional)                 |
+| `GOOGLE_CLIENT_SECRET`   | —                       | Google OAuth client secret (optional)             |
+| `RESEND_API_KEY`         | —                       | Resend API key for magic link emails (optional)   |
+| `EMAIL_FROM`             | `noreply@sindri.dev`    | Sender address for magic link emails              |
+| `METRICS_RETENTION_DAYS` | `30`                    | Metrics data retention                            |
+| `LOGS_RETENTION_DAYS`    | `14`                    | Log data retention                                |
+| `EVENTS_RETENTION_DAYS`  | `90`                    | Event data retention                              |
+| `AUDIT_RETENTION_DAYS`   | `365`                   | Audit log retention                               |
 
 ## Setup
 

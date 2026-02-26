@@ -1,5 +1,5 @@
 /**
- * WebSocket server — entry point for the Sindri Console real-time layer.
+ * WebSocket server — entry point for the Mimir real-time layer.
  *
  * Responsibilities:
  *   - Attach to an existing HTTP/HTTPS server (no separate port)

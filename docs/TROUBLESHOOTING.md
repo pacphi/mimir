@@ -42,18 +42,19 @@ make db-migrate
 ```typescript
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
+import { getDatabaseUrl } from "./env.js";
 
-const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
+const adapter = new PrismaPg({ connectionString: getDatabaseUrl() });
 const prisma = new PrismaClient({ adapter });
 ```
 
-### `prisma generate` fails without DATABASE_URL
+### `prisma generate` fails without database credentials
 
-**Problem:** `prisma generate` requires `DATABASE_URL` but you don't have a running database.
+**Problem:** `prisma generate` requires database credentials but you don't have a running database.
 
-**Cause:** `prisma.config.ts` references the environment variable.
+**Cause:** `prisma.config.ts` constructs the URL from `POSTGRES_*` component vars (or `DATABASE_URL`).
 
-**Solution:** The config handles this gracefully — `prisma generate` works without a live DB. If it still fails, set a dummy URL:
+**Solution:** The config handles this gracefully — `prisma generate` works without a live DB when neither `DATABASE_URL` nor `POSTGRES_PASSWORD` is set. If it still fails, set a dummy URL:
 
 ```bash
 DATABASE_URL=postgresql://x:x@localhost:5432/x pnpm db:generate
@@ -80,7 +81,7 @@ make infra-status   # Verify redis is healthy
 
 **Cause:** Redis pub/sub requires a separate connection from the main client.
 
-**Solution:** Check that the API can connect to Redis and that `REDIS_URL` is correct. Restart the API:
+**Solution:** Check that the API can connect to Redis and that `REDIS_URL` (or `REDIS_HOST`/`REDIS_PORT`) is correct. Restart the API:
 
 ```bash
 # Check Redis

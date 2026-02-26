@@ -64,6 +64,13 @@ export function createApp(): Hono {
     app.use("/api/v1/*", devAuthMiddleware);
   }
 
+  // Public config endpoint — tells the frontend whether auth is bypassed
+  app.get("/api/config", (c) => {
+    return c.json({
+      authBypass: isDevAuthBypassEnabled(),
+    });
+  });
+
   // ── Routes ─────────────────────────────────────────────────────────────────
 
   // Auth routes are public (they handle their own auth)

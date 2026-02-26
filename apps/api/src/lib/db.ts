@@ -11,13 +11,10 @@
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { logger } from "./logger.js";
+import { getDatabaseUrl } from "./env.js";
 
 function createAdapter() {
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
-    throw new Error("DATABASE_URL environment variable is not set");
-  }
-  return new PrismaPg({ connectionString });
+  return new PrismaPg({ connectionString: getDatabaseUrl() });
 }
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };

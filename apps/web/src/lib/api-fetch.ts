@@ -12,7 +12,16 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
   });
 
   if (response.status === 401) {
-    window.location.href = "/login";
+    // Only redirect to login if auth bypass is not active
+    try {
+      const configRes = await fetch("/api/config");
+      const config = await configRes.json();
+      if (!config.authBypass) {
+        window.location.href = "/login";
+      }
+    } catch {
+      window.location.href = "/login";
+    }
     throw new Error("Session expired");
   }
 

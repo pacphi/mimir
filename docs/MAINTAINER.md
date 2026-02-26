@@ -26,7 +26,7 @@ cargo build --release
 make infra-up
 
 # 3. Run Mimir API + Web natively, pointing at your local Sindri binary
-SINDRI_BIN_PATH=../sindri/v3/target/release/sindri make dev-full
+SINDRI_BIN_PATH=/absolute/path/to/sindri/v3/target/release/sindri make dev-full
 ```
 
 Or set it in your `.env`:
@@ -34,6 +34,8 @@ Or set it in your `.env`:
 ```bash
 SINDRI_BIN_PATH=/absolute/path/to/sindri/v3/target/release/sindri
 ```
+
+> **Note:** `SINDRI_BIN_PATH` must be an **absolute path**. Relative paths will not resolve correctly because the API process working directory varies depending on how it is started (e.g. turborepo, make, or direct `pnpm dev`).
 
 This is the fastest iteration loop — `cargo build` on the Sindri side, then the next Mimir CLI call picks up the new binary automatically (no restart needed).
 

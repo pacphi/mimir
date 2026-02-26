@@ -75,17 +75,7 @@ export async function runCliJson<T>(args: string[]): Promise<T> {
       timeout: timeoutMs,
       maxBuffer: 10 * 1024 * 1024, // 10 MB
     });
-    // The sindri CLI writes progress/info lines (including ANSI escape codes) to stdout
-    // before the JSON payload. ANSI codes like \x1b[2m also contain `[`, so we can't
-    // simply search for the first `[`.
-    // Instead: strip ANSI escape sequences, then find the first `[` or `{` at the
-    // start of a line (JSON arrays/objects always start at column 0 in sindri output).
-    const stripped = stdout.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
-    const jsonStart = stripped.search(/^[{[]/m);
-    if (jsonStart === -1) {
-      throw new CliExitError(`No JSON found in sindri output: ${stdout.slice(0, 200)}`, "");
-    }
-    return JSON.parse(stripped.slice(jsonStart)) as T;
+    return JSON.parse(stdout) as T;
   } catch (err: unknown) {
     if (err instanceof Error) {
       const nodeErr = err as NodeJS.ErrnoException & { killed?: boolean; stderr?: string };

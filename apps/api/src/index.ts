@@ -1,16 +1,23 @@
 /**
- * Sindri Console API — server entry point.
+ * Mimir API — server entry point.
  *
  * Starts the Hono HTTP server via @hono/node-server, attaches the WebSocket
  * gateway, and connects to PostgreSQL (via Prisma) and Redis.
  *
  * Environment variables (with defaults):
- *   PORT            — HTTP port (default: 3001)
- *   DATABASE_URL    — PostgreSQL connection URL (required)
- *   REDIS_URL       — Redis/Valkey URL (default: redis://localhost:6379)
- *   NODE_ENV        — development | production (default: development)
- *   LOG_LEVEL       — pino log level (default: debug in dev, info in prod)
- *   CORS_ORIGIN     — comma-separated allowed origins
+ *   PORT              — HTTP port (default: 3001)
+ *   DATABASE_URL      — Full PostgreSQL URL (overrides POSTGRES_* vars)
+ *   POSTGRES_USER     — PostgreSQL user (default: mimir)
+ *   POSTGRES_PASSWORD — PostgreSQL password (required if DATABASE_URL unset)
+ *   POSTGRES_HOST     — PostgreSQL host (default: localhost)
+ *   POSTGRES_PORT     — PostgreSQL port (default: 5432)
+ *   POSTGRES_DB       — PostgreSQL database (default: mimir)
+ *   REDIS_URL         — Full Redis URL (overrides REDIS_* vars)
+ *   REDIS_HOST        — Redis host (default: localhost)
+ *   REDIS_PORT        — Redis port (default: 6379)
+ *   NODE_ENV          — development | production (default: development)
+ *   LOG_LEVEL         — pino log level (default: debug in dev, info in prod)
+ *   CORS_ORIGIN       — comma-separated allowed origins
  */
 
 import { serve } from "@hono/node-server";
@@ -31,7 +38,7 @@ import { startDriftDetector, stopDriftDetector } from "./services/drift/detector
 const PORT = parseInt(process.env.PORT ?? "3001", 10);
 
 async function main(): Promise<void> {
-  logger.info("Starting Sindri Console API...");
+  logger.info("Starting Mimir API...");
 
   // Connect to Redis
   try {

@@ -73,14 +73,14 @@ export function Sidebar() {
         {!collapsed && (
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 rounded bg-primary flex items-center justify-center">
-              <span className="text-primary-foreground text-xs font-bold">S</span>
+              <span className="text-primary-foreground text-xs font-bold">M</span>
             </div>
-            <span className="font-semibold text-sm">Sindri Console</span>
+            <span className="font-semibold text-sm">Mimir</span>
           </div>
         )}
         {collapsed && (
           <div className="w-6 h-6 rounded bg-primary flex items-center justify-center mx-auto">
-            <span className="text-primary-foreground text-xs font-bold">S</span>
+            <span className="text-primary-foreground text-xs font-bold">M</span>
           </div>
         )}
         {!collapsed && (

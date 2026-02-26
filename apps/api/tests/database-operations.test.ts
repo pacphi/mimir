@@ -14,14 +14,34 @@
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 import type { Instance, User } from "@prisma/client";
 
 // ---------------------------------------------------------------------------
-// Setup
+// Setup — build connection URL from component env vars (Prisma 7 adapter)
 // ---------------------------------------------------------------------------
 
+function testDatabaseUrl(): string {
+  if (process.env.TEST_DATABASE_URL) return process.env.TEST_DATABASE_URL;
+  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
+
+  const user = process.env.POSTGRES_USER ?? "mimir";
+  const password = process.env.POSTGRES_PASSWORD;
+  const host = process.env.POSTGRES_HOST ?? "localhost";
+  const port = process.env.POSTGRES_PORT ?? "5432";
+  const db = process.env.POSTGRES_DB ?? "mimir";
+
+  if (!password) {
+    throw new Error(
+      "Either TEST_DATABASE_URL, DATABASE_URL, or POSTGRES_PASSWORD must be set for tests.",
+    );
+  }
+
+  return `postgresql://${user}:${encodeURIComponent(password)}@${host}:${port}/${db}`;
+}
+
 const prisma = new PrismaClient({
-  datasources: { db: { url: process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL } },
+  adapter: new PrismaPg({ connectionString: testDatabaseUrl() }),
 });
 
 async function cleanDatabase(): Promise<void> {

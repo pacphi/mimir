@@ -1,5 +1,5 @@
 /**
- * Prisma seed script for Sindri Console development data.
+ * Prisma seed script for Mimir development data.
  *
  * Run with: npx prisma db seed
  * (configured in package.json under "prisma.seed")
@@ -611,7 +611,7 @@ async function seedAuditLogs(users: Array<{ id: string; email: string }>) {
       resource_id: adminUser.id,
       metadata: { ip: "10.0.0.1", method: "password" },
       ip_address: "10.0.0.1",
-      user_agent: "Mozilla/5.0 (Sindri Console)",
+      user_agent: "Mozilla/5.0 (Mimir)",
       timestamp: minutesAgo(120),
     },
     {
@@ -622,7 +622,7 @@ async function seedAuditLogs(users: Array<{ id: string; email: string }>) {
       resource_id: "team_platform_01",
       metadata: { added_user_id: devUser.id, role: "DEVELOPER" },
       ip_address: "10.0.0.1",
-      user_agent: "Mozilla/5.0 (Sindri Console)",
+      user_agent: "Mozilla/5.0 (Mimir)",
       timestamp: minutesAgo(115),
     },
     {
@@ -632,7 +632,7 @@ async function seedAuditLogs(users: Array<{ id: string; email: string }>) {
       resource_id: "team_ml_01",
       metadata: { name: "Machine Learning" },
       ip_address: "10.0.0.1",
-      user_agent: "Mozilla/5.0 (Sindri Console)",
+      user_agent: "Mozilla/5.0 (Mimir)",
       timestamp: minutesAgo(110),
     },
     // Operator actions
@@ -669,7 +669,7 @@ async function seedAuditLogs(users: Array<{ id: string; email: string }>) {
         new_role: "DEVELOPER",
       },
       ip_address: "10.0.0.2",
-      user_agent: "Mozilla/5.0 (Sindri Console)",
+      user_agent: "Mozilla/5.0 (Mimir)",
       timestamp: minutesAgo(60),
     },
     // Developer actions
@@ -1282,7 +1282,7 @@ async function seedCostData(instances: Array<{ id: string; provider: string }>) 
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log("Starting Sindri Console seed...\n");
+  console.log("Starting Mimir seed...\n");
 
   const users = await seedUsers();
   await seedApiKeys(users);

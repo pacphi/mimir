@@ -87,6 +87,77 @@ export async function getDeploymentById(id: string): Promise<Deployment | null> 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// YAML / extension helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Extract the `extensions:` array from a YAML string.
+ * Uses simple line parsing — no YAML library needed for this flat list.
+ */
+function parseExtensionsFromYaml(yaml: string): string[] {
+  const lines = yaml.split("\n");
+  const extensions: string[] = [];
+  let inExtensions = false;
+
+  for (const line of lines) {
+    if (/^extensions:\s*$/.test(line) || /^extensions:\s*\[/.test(line)) {
+      // Handle inline empty array: `extensions: []`
+      const inlineMatch = line.match(/^extensions:\s*\[([^\]]*)\]/);
+      if (inlineMatch) {
+        const items = inlineMatch[1]
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        return items;
+      }
+      inExtensions = true;
+      continue;
+    }
+    if (inExtensions) {
+      const itemMatch = line.match(/^\s+-\s+(.+)/);
+      if (itemMatch) {
+        extensions.push(itemMatch[1].trim());
+      } else if (line.trim() !== "" && !/^\s+-/.test(line)) {
+        // Reached a different top-level key
+        break;
+      }
+    }
+  }
+  return extensions;
+}
+
+/** Ensure `draupnir` is always in the extensions list. */
+function ensureDraupnir(extensions: string[]): string[] {
+  if (extensions.includes("draupnir")) return extensions;
+  return [...extensions, "draupnir"].sort((a, b) => a.localeCompare(b));
+}
+
+const CONSOLE_BLOCK = [
+  "",
+  "console:",
+  `  endpoint: ${process.env.SINDRI_CONSOLE_URL ?? "http://localhost:3001"}`,
+  `  api_key: ${process.env.SINDRI_CONSOLE_API_KEY ?? ""}`,
+  "  heartbeat_interval: 30s",
+].join("\n");
+
+/** Resolve console placeholders and ensure the console block exists. */
+function resolveConsolePlaceholders(yaml: string): string {
+  const consoleUrl = process.env.SINDRI_CONSOLE_URL ?? "http://localhost:3001";
+  const consoleApiKey = process.env.SINDRI_CONSOLE_API_KEY ?? "";
+
+  let resolved = yaml
+    .replace(/\$\{SINDRI_CONSOLE_URL\}/g, consoleUrl)
+    .replace(/\$\{SINDRI_CONSOLE_API_KEY\}/g, consoleApiKey);
+
+  // If there's no console: block at all, append one
+  if (!/^console:/m.test(resolved)) {
+    resolved = resolved.trimEnd() + "\n" + CONSOLE_BLOCK + "\n";
+  }
+
+  return resolved;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Internal helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -159,6 +230,9 @@ async function runProvisioningFlow(
     appendLog("Configuring instance...");
     await sleep(1000);
 
+    // Resolve console placeholders in YAML before applying
+    const resolvedYaml = resolveConsolePlaceholders(input.yaml_config);
+
     await emitProgress(deploymentId, "Applying YAML configuration...", { progress_percent: 55 });
     appendLog("Applying YAML configuration...");
     await sleep(1000);
@@ -172,18 +246,21 @@ async function runProvisioningFlow(
     await sleep(1000);
 
     // ── Register instance in DB ──────────────────────────────────────────────
+    const parsedExtensions = ensureDraupnir(parseExtensionsFromYaml(resolvedYaml));
+
     const instance = await db.instance.upsert({
       where: { name: input.name },
       create: {
         name: input.name,
         provider: input.provider,
         region: input.region,
-        extensions: [],
+        extensions: parsedExtensions,
         status: "RUNNING",
       },
       update: {
         provider: input.provider,
         region: input.region,
+        extensions: parsedExtensions,
         status: "RUNNING",
       },
     });

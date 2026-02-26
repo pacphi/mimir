@@ -100,25 +100,27 @@ export function SindriYamlEditor({
   const editorHeight = typeof height === "number" ? height - 80 : `calc(${height} - 80px)`;
 
   return (
-    <div
-      className={cn("flex flex-col rounded-lg border bg-background overflow-hidden", className)}
-      style={{ height }}
-    >
-      <YamlToolbar
-        onFormat={readOnly ? undefined : handleFormat}
-        onImport={readOnly ? undefined : handleImport}
-        onExport={handleExport}
-        onCopy={handleCopy}
-        disabled={false}
-      />
-
-      <div className="flex-1 min-h-0">
-        <YamlEditor
-          value={yaml}
-          onChange={readOnly ? undefined : handleChange}
-          readOnly={readOnly}
-          height={editorHeight}
+    <div className={cn("flex flex-col", className)}>
+      <div
+        className="flex flex-col rounded-lg border bg-background overflow-hidden"
+        style={{ height }}
+      >
+        <YamlToolbar
+          onFormat={readOnly ? undefined : handleFormat}
+          onImport={readOnly ? undefined : handleImport}
+          onExport={handleExport}
+          onCopy={handleCopy}
+          disabled={false}
         />
+
+        <div className="flex-1 min-h-0">
+          <YamlEditor
+            value={yaml}
+            onChange={readOnly ? undefined : handleChange}
+            readOnly={readOnly}
+            height={editorHeight}
+          />
+        </div>
       </div>
 
       <YamlValidator

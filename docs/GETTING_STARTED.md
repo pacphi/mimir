@@ -26,7 +26,8 @@
 | `CORS_ORIGIN`            | `http://localhost:5173` | Allowed CORS origin (web app URL)                 |
 | `JWT_SECRET`             | —                       | Secret for JWT signing                            |
 | `SESSION_SECRET`         | —                       | Session encryption secret                         |
-| `MIMIR_API_KEY`          | —                       | Bootstrap API key for seeding                     |
+| `SINDRI_CONSOLE_API_KEY` | —                       | Bootstrap API key for agent registration          |
+| `SINDRI_CONSOLE_URL`     | `http://localhost:3001` | Console endpoint for Draupnir agents              |
 | `SINDRI_BIN_PATH`        | —                       | Absolute path to Sindri CLI binary (optional)     |
 | `SINDRI_CLI_TIMEOUT_MS`  | `30000`                 | Timeout for Sindri CLI commands                   |
 | `LOG_LEVEL`              | `info`                  | Pino log level (`debug`, `info`, `warn`, `error`) |

@@ -74,7 +74,7 @@ async function tryApiKeyAuth(c: Context): Promise<ApiKeyResult> {
   }
 
   db.apiKey
-    .update({ where: { id: record.id }, data: {} })
+    .update({ where: { id: record.id }, data: { last_used_at: new Date() } })
     .catch((err: unknown) =>
       logger.warn({ err, apiKeyId: record!.id }, "Failed to update last_used_at"),
     );

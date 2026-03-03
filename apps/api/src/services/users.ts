@@ -3,8 +3,10 @@
  */
 
 import type { User, UserRole, Prisma } from "@prisma/client";
-import { createHash } from "crypto";
+import bcrypt from "bcrypt";
 import { db } from "../lib/db.js";
+
+const BCRYPT_ROUNDS = 12;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Input types
@@ -37,9 +39,8 @@ export interface ListUsersFilter {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function hashPassword(password: string): string {
-  // Simple SHA-256 hash for demo; in production use bcrypt
-  return createHash("sha256").update(password).digest("hex");
+async function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, BCRYPT_ROUNDS);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -47,7 +48,7 @@ function hashPassword(password: string): string {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function createUser(input: CreateUserInput): Promise<User> {
-  const password_hash = hashPassword(input.password);
+  const password_hash = await hashPassword(input.password);
   return db.user.create({
     data: {
       email: input.email,
@@ -112,7 +113,7 @@ export async function updateUser(id: string, input: UpdateUserInput): Promise<Us
   if (input.email !== undefined) data.email = input.email;
   if (input.role !== undefined) data.role = input.role;
   if (input.is_active !== undefined) data.is_active = input.is_active;
-  if (input.password !== undefined) data.password_hash = hashPassword(input.password);
+  if (input.password !== undefined) data.password_hash = await hashPassword(input.password);
 
   return db.user.update({ where: { id }, data });
 }

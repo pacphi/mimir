@@ -411,12 +411,14 @@ model AuditLog {
 
 /// API keys for CI/CD and programmatic access to the Console API.
 model ApiKey {
-  id         String    @id @default(cuid())
-  user_id    String
-  key_hash   String    @unique // SHA256 of the raw key; raw key shown once at creation
-  name       String            // Human-readable label
-  created_at DateTime  @default(now())
-  expires_at DateTime?         // Null means non-expiring
+  id           String    @id @default(cuid())
+  user_id      String
+  key_hash     String    @unique // SHA256 of the raw key; raw key shown once at creation
+  key_prefix   String?           // First 10 chars of raw key (e.g. "sk-a1b2c3") for identification
+  name         String            // Human-readable label
+  created_at   DateTime  @default(now())
+  expires_at   DateTime?         // Null means non-expiring
+  last_used_at DateTime?         // Updated on each authenticated request
 
   // Relations
   user User @relation(fields: [user_id], references: [id], onDelete: Cascade)

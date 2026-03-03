@@ -1,100 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { ValidationResult, ValidationError } from "./YamlValidator";
-
-// Simple YAML parser for validation purposes.
-// We parse the YAML manually to check required fields and basic structure
-// without pulling in a heavy YAML library dependency.
-
-interface ParsedSindriConfig {
-  version?: unknown;
-  name?: unknown;
-  deployment?: {
-    provider?: unknown;
-    image?: unknown;
-    resources?: unknown;
-    volumes?: unknown;
-  };
-  extensions?: {
-    profile?: unknown;
-    active?: unknown[];
-    additional?: unknown[];
-    auto_install?: unknown;
-  };
-  secrets?: unknown[];
-  providers?: unknown;
-}
-
-function parseSimpleYaml(yaml: string): {
-  value: ParsedSindriConfig | null;
-  parseError: string | null;
-} {
-  try {
-    // Use a simple line-by-line parser for basic structure validation
-    const lines = yaml.split("\n");
-    const result: Record<string, unknown> = {};
-    const stack: Array<{ obj: Record<string, unknown>; indent: number; key: string | null }> = [
-      { obj: result, indent: -1, key: null },
-    ];
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      // Skip comments and empty lines
-      if (!line.trim() || line.trim().startsWith("#")) continue;
-
-      const indent = line.match(/^(\s*)/)?.[1]?.length ?? 0;
-      const trimmed = line.trim();
-
-      // Key-value pair
-      const kvMatch = trimmed.match(/^([a-zA-Z_][a-zA-Z0-9_-]*):\s*(.*)$/);
-      if (kvMatch) {
-        const [, key, rawVal] = kvMatch;
-        const val = rawVal.trim();
-
-        // Pop stack until we find the right parent
-        while (stack.length > 1 && stack[stack.length - 1].indent >= indent) {
-          stack.pop();
-        }
-        const parent = stack[stack.length - 1].obj;
-
-        if (val === "" || val === null) {
-          // Nested object will follow
-          const nested: Record<string, unknown> = {};
-          parent[key] = nested;
-          stack.push({ obj: nested, indent, key });
-        } else if (val === "true" || val === "false") {
-          parent[key] = val === "true";
-        } else if (!isNaN(Number(val)) && val !== "") {
-          parent[key] = Number(val);
-        } else {
-          // String value (strip quotes)
-          parent[key] = val.replace(/^["']|["']$/g, "");
-        }
-        continue;
-      }
-
-      // Array item
-      const arrayMatch = trimmed.match(/^-\s*(.*)$/);
-      if (arrayMatch) {
-        while (stack.length > 1 && stack[stack.length - 1].indent >= indent) {
-          stack.pop();
-        }
-        const parent = stack[stack.length - 1].obj;
-        const parentKey = stack[stack.length - 1].key;
-        // Find the key for this array
-        if (parentKey) {
-          const arr = (parent[parentKey] as unknown[]) ?? [];
-          parent[parentKey] = arr;
-          const itemVal = arrayMatch[1].trim().replace(/^["']|["']$/g, "");
-          if (itemVal) arr.push(itemVal);
-        }
-      }
-    }
-
-    return { value: result as ParsedSindriConfig, parseError: null };
-  } catch {
-    return { value: null, parseError: "Failed to parse YAML" };
-  }
-}
+import { parseSimpleYaml, type ParsedSindriConfig } from "@/lib/yaml-parser";
+import { isSystemVolumeConflict, SYSTEM_VOLUME_ERROR } from "@/lib/sindri-constraints";
 
 function validateSindriConfig(config: ParsedSindriConfig, yamlLines: string[]): ValidationError[] {
   const errors: ValidationError[] = [];
@@ -170,6 +77,23 @@ function validateSindriConfig(config: ParsedSindriConfig, yamlLines: string[]): 
         path: "deployment.provider",
         line: findLine("provider"),
       });
+    }
+
+    if (config.deployment?.volumes && typeof config.deployment.volumes === "object") {
+      const vols = config.deployment.volumes as Record<string, unknown>;
+      for (const [volName, volDef] of Object.entries(vols)) {
+        if (typeof volDef === "object" && volDef !== null) {
+          const path = String((volDef as Record<string, unknown>).path ?? "");
+          if (path && isSystemVolumeConflict(path)) {
+            errors.push({
+              severity: "error",
+              message: SYSTEM_VOLUME_ERROR,
+              path: `deployment.volumes.${volName}.path`,
+              line: findLine("path"),
+            });
+          }
+        }
+      }
     }
   }
 

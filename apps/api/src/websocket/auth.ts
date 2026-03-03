@@ -6,6 +6,7 @@ import { createHash } from "crypto";
 import type { IncomingMessage } from "http";
 import { db } from "../lib/db.js";
 import { auth } from "../lib/auth.js";
+import { consumeTicket } from "./tickets.js";
 
 export interface AuthenticatedPrincipal {
   userId: string;
@@ -35,6 +36,10 @@ export function extractRawKey(req: IncomingMessage): string | null {
   if (typeof headerKey === "string" && headerKey.length > 0) {
     return headerKey;
   }
+  // SECURITY NOTE: API keys in query params are logged in access logs by proxies,
+  // load balancers, and CDNs. This is a known risk accepted for WebSocket upgrade
+  // compatibility. Future improvement: implement a short-lived WebSocket ticket
+  // system (Redis-backed, single-use, 30s TTL) to replace query param auth.
   const url = req.url ?? "";
   const qmark = url.indexOf("?");
   if (qmark !== -1) {
@@ -102,15 +107,47 @@ async function trySessionAuth(req: IncomingMessage): Promise<AuthenticatedPrinci
   }
 }
 
+/**
+ * Try ticket-based auth — preferred method for WebSocket connections.
+ * Tickets are short-lived (30s), single-use, Redis-backed tokens.
+ */
+async function tryTicketAuth(req: IncomingMessage): Promise<AuthenticatedPrincipal | null> {
+  const url = req.url ?? "";
+  const qmark = url.indexOf("?");
+  if (qmark === -1) return null;
+
+  const params = new URLSearchParams(url.slice(qmark + 1));
+  const ticket = params.get("ticket");
+  if (!ticket || ticket.length === 0) return null;
+
+  const payload = await consumeTicket(ticket);
+  if (!payload) return null;
+
+  return {
+    userId: payload.userId,
+    role: payload.role as AuthenticatedPrincipal["role"],
+    instanceId: extractInstanceId(req),
+    apiKeyId: payload.apiKeyId,
+    sessionId: payload.sessionId,
+    authMethod: payload.authMethod,
+  };
+}
+
 export async function authenticateUpgrade(req: IncomingMessage): Promise<AuthenticatedPrincipal> {
+  // 1. Ticket-based auth (preferred — no secrets in URLs/logs)
+  const ticketAuth = await tryTicketAuth(req);
+  if (ticketAuth) return ticketAuth;
+
+  // 2. API key via header (X-Api-Key)
   const apiKeyAuth = await tryApiKeyAuth(req);
   if (apiKeyAuth) return apiKeyAuth;
 
+  // 3. Session cookie
   const sessionAuth = await trySessionAuth(req);
   if (sessionAuth) return sessionAuth;
 
   throw new AuthError(
-    "Authentication required. Supply an API key or sign in via the web interface.",
+    "Authentication required. Use a WebSocket ticket (POST /api/v1/ws/ticket), API key header, or sign in via the web interface.",
     "MISSING_AUTH",
   );
 }

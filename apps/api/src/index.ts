@@ -33,11 +33,15 @@ import {
   stopAlertEvaluationWorker,
 } from "./services/alerts/evaluation.worker.js";
 import { startCostWorker, stopCostWorker } from "./workers/cost.worker.js";
+import { startCatalogWorker, stopCatalogWorker } from "./workers/catalog.worker.js";
 import { startDriftDetector, stopDriftDetector } from "./services/drift/detector.worker.js";
+import { validateEnv } from "./lib/env-validation.js";
 
 const PORT = parseInt(process.env.PORT ?? "3001", 10);
 
 async function main(): Promise<void> {
+  validateEnv();
+
   logger.info("Starting Mimir API...");
 
   // Connect to Redis
@@ -86,6 +90,9 @@ async function main(): Promise<void> {
   // Start cost calculation worker (daily cost recording + right-sizing + budget alerts)
   startCostWorker();
 
+  // Start compute catalog refresh worker (populates Redis cache with provider pricing)
+  startCatalogWorker();
+
   // Start hourly drift detection worker
   startDriftDetector();
 
@@ -99,6 +106,7 @@ async function main(): Promise<void> {
     stopAggregationWorker();
     stopAlertEvaluationWorker();
     stopCostWorker();
+    stopCatalogWorker();
     stopDriftDetector();
 
     server.close(async () => {

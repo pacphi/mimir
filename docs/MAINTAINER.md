@@ -303,6 +303,237 @@ New users start as **VIEWER** and can only read dashboards, metrics, and logs. T
 
 ---
 
+## Compute Catalog Setup
+
+The deployment wizard (Step 3) fetches live compute sizes and pricing from each cloud provider's API. See [ADR-0004](./adr/0004-dynamic-compute-catalog.md) and [ADR-0005](./adr/0005-provider-pricing-data-sources.md) for the design rationale.
+
+### How It Works
+
+A background worker runs every 4 hours, fetching compute catalogs from each enabled provider and caching the results in Redis. The frontend calls `GET /api/v1/providers/:provider/compute-catalog` which serves from cache. If no API key is configured for a given provider, static fallback pricing from `apps/api/src/services/costs/pricing.ts` is used automatically.
+
+### Provider API Keys
+
+Live pricing requires API keys for authenticated providers. All keys are optional — providers without keys gracefully fall back to static data.
+
+| Env Variable                   | Provider     | How to Obtain                                                                                                                                               |
+| ------------------------------ | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PRICING_FLY_API_TOKEN`        | Fly.io       | `fly auth token` or [Fly.io Dashboard > Access Tokens](https://fly.io/user/personal_access_tokens)                                                          |
+| `PRICING_RUNPOD_API_KEY`       | RunPod       | [RunPod Console > Settings > API Keys](https://www.runpod.io/console/user/settings)                                                                         |
+| `PRICING_NORTHFLANK_API_TOKEN` | Northflank   | [Northflank Dashboard > Account > API](https://app.northflank.com/account/api)                                                                              |
+| `PRICING_GCP_API_KEY`          | GCP          | [Google Cloud Console > APIs & Services > Credentials](https://console.cloud.google.com/apis/credentials) — create an API key with Cloud Billing API access |
+| `PRICING_DIGITALOCEAN_TOKEN`   | DigitalOcean | [DigitalOcean Dashboard > API > Tokens](https://cloud.digitalocean.com/account/api/tokens)                                                                  |
+
+> **Note:** Pricing tokens use a `PRICING_` prefix to avoid collision with deployment credentials. The sindri CLI looks for `FLY_API_TOKEN`, `RUNPOD_API_KEY`, etc. — `PRICING_*` vars are invisible to the CLI subprocess, preventing accidental use of operator keys for user deployments.
+
+Add them to your `.env`:
+
+```bash
+# Optional — providers without keys use static fallback pricing
+PRICING_FLY_API_TOKEN=fo1_abc123...
+PRICING_RUNPOD_API_KEY=abc123...
+PRICING_NORTHFLANK_API_TOKEN=abc123...
+PRICING_GCP_API_KEY=AIza...
+PRICING_DIGITALOCEAN_TOKEN=dop_v1_abc123...
+```
+
+AWS and Azure use public pricing APIs and require no authentication.
+
+### Refresh Schedule
+
+Each provider has a default refresh interval. The catalog worker runs every 4 hours and refreshes all enabled providers:
+
+| Provider   | Default Refresh | Default Cache TTL |
+| ---------- | --------------- | ----------------- |
+| Fly.io     | Every 6h        | 6h                |
+| RunPod     | Every 4h        | 4h                |
+| Northflank | Every 12h       | 12h               |
+| AWS        | Daily           | 24h               |
+| GCP        | Daily           | 24h               |
+| Azure      | Daily           | 24h               |
+| E2B        | Formula-based   | 24h               |
+| Docker     | Static          | Never expires     |
+| Kubernetes | Static          | Never expires     |
+
+Admins can force an immediate refresh via the API:
+
+```bash
+curl -X POST -H "Authorization: Bearer <admin-api-key>" \
+  http://localhost:3001/api/v1/providers/fly/compute-catalog/refresh
+```
+
+### Overriding Configuration
+
+#### Per-provider env vars
+
+Override refresh interval, TTL, or disable a provider entirely:
+
+```bash
+CATALOG_FLY_TTL=3600              # Cache TTL in seconds
+CATALOG_FLY_INTERVAL_MS=7200000   # Refresh interval in ms
+CATALOG_AWS_ENABLED=false          # Disable AWS catalog fetching
+```
+
+#### JSON config file
+
+For more complex overrides, point `CATALOG_CONFIG` to a JSON file:
+
+```bash
+CATALOG_CONFIG=/etc/mimir/catalog.json
+```
+
+```json
+{
+  "providers": {
+    "fly": {
+      "ttl_seconds": 3600,
+      "refresh_interval_ms": 7200000
+    },
+    "aws": {
+      "enabled": false
+    }
+  }
+}
+```
+
+### Custom Pricing for Docker and Kubernetes
+
+Docker and Kubernetes show $0 pricing by default since costs depend on your infrastructure. To set custom prices (e.g., for internal chargeback):
+
+```bash
+# Docker custom per-hour pricing
+CATALOG_DOCKER_SMALL_PRICE_HR=0.05
+CATALOG_DOCKER_MEDIUM_PRICE_HR=0.10
+CATALOG_DOCKER_LARGE_PRICE_HR=0.20
+CATALOG_DOCKER_XLARGE_PRICE_HR=0.40
+
+# Kubernetes custom per-hour pricing
+CATALOG_K8S_SMALL_PRICE_HR=0.03
+CATALOG_K8S_MEDIUM_PRICE_HR=0.06
+CATALOG_K8S_LARGE_PRICE_HR=0.12
+CATALOG_K8S_XLARGE_PRICE_HR=0.24
+```
+
+### Maintaining Instance Allowlists
+
+AWS, GCP, and Azure use curated allowlists to limit the number of instance types fetched (the full AWS pricing index is 100s of MB). When new instance generations launch, update the allowlist in:
+
+- **AWS**: `apps/api/src/services/catalog/fetchers/aws.fetcher.ts` — `INSTANCE_ALLOWLIST` and `INSTANCE_SPECS`
+- **GCP**: `apps/api/src/services/catalog/fetchers/gcp.fetcher.ts` — `MACHINE_TYPES`
+- **Azure**: `apps/api/src/services/catalog/fetchers/azure.fetcher.ts` — `VM_ALLOWLIST` and `VM_SPECS`
+
+### Verifying Catalog Data
+
+#### Inspect via the API
+
+Check what each provider returns, including data source and freshness:
+
+```bash
+# Fly.io catalog
+curl -s http://localhost:3001/api/v1/providers/fly/compute-catalog | jq .
+
+# All providers (repeat for: runpod, aws, gcp, azure, e2b, northflank, docker, kubernetes, devpod)
+curl -s http://localhost:3001/api/v1/providers/aws/compute-catalog | jq .
+```
+
+The response includes:
+
+- **`source`**: `"live"` (fresh from API), `"cached"` (from Redis), or `"fallback"` (static data)
+- **`fetched_at`**: ISO timestamp of when the data was last pulled
+
+#### Inspect Redis cache directly
+
+```bash
+redis-cli GET catalog:fly | jq .
+redis-cli TTL catalog:fly         # seconds until cache expires
+redis-cli GET catalog:aws | jq .
+```
+
+#### Force refresh
+
+```bash
+curl -X POST -H "Authorization: Bearer <admin-api-key>" \
+  http://localhost:3001/api/v1/providers/fly/compute-catalog/refresh | jq .
+```
+
+#### Cross-check against provider APIs
+
+Verify that Mimir's catalog matches the raw provider data:
+
+**Fly.io** (GraphQL):
+
+```bash
+curl -s -X POST https://api.fly.io/graphql \
+  -H "Authorization: Bearer $PRICING_FLY_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"{ platform { vmSizes { name cpuCores memoryGb priceMonth priceSecond } } }"}' | jq .
+```
+
+**RunPod** (GraphQL):
+
+```bash
+curl -s -X POST https://api.runpod.io/graphql \
+  -H "Authorization: Bearer $PRICING_RUNPOD_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"{ gpuTypes { id displayName memoryInGb securePrice communityPrice } }"}' | jq .
+```
+
+**Azure** (public REST — no auth):
+
+```bash
+curl -s "https://prices.azure.com/api/retail/prices?api-version=2023-01-01-preview&\$filter=serviceName%20eq%20'Virtual%20Machines'%20and%20armRegionName%20eq%20'eastus'%20and%20priceType%20eq%20'Consumption'" | jq '.Items[:3]'
+```
+
+**GCP** (API key):
+
+```bash
+curl -s "https://cloudbilling.googleapis.com/v1/services/6F81-5844-456A/skus?key=$PRICING_GCP_API_KEY&currencyCode=USD&pageSize=5" | jq .
+```
+
+### Customizing What Data Is Returned
+
+Each provider fetcher has different levels of customizability:
+
+#### Providers with curated allowlists (most influence)
+
+AWS, GCP, and Azure return thousands of SKUs. The fetchers use allowlists to select a manageable subset of latest-generation instance types. You can add, remove, or modify these:
+
+| Provider | File                                                      | What to edit                                                                                               |
+| -------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| AWS      | `apps/api/src/services/catalog/fetchers/aws.fetcher.ts`   | `INSTANCE_ALLOWLIST` (family prefixes like `"t3a."`, `"m7i."`) and `INSTANCE_SPECS` (vCPU/memory per type) |
+| GCP      | `apps/api/src/services/catalog/fetchers/gcp.fetcher.ts`   | `MACHINE_TYPES` array (id, name, vcpus, memory, series)                                                    |
+| Azure    | `apps/api/src/services/catalog/fetchers/azure.fetcher.ts` | `VM_ALLOWLIST` (SKU names) and `VM_SPECS` (vCPU/memory per SKU)                                            |
+
+For example, to add next-gen AWS M8i instances, add `"m8i."` to `INSTANCE_ALLOWLIST` and add specs like `"m8i.large": { vcpus: 2, memory_gb: 8 }` to `INSTANCE_SPECS`.
+
+#### Providers with full API pass-through (no filtering)
+
+Fly.io, RunPod, and Northflank return their full catalog. The fetchers pass through whatever the provider API returns — you can't filter from our side. What you see is what the provider offers.
+
+#### Formula-based and static providers (fully configurable)
+
+| Provider   | What you control                         | How                                                         |
+| ---------- | ---------------------------------------- | ----------------------------------------------------------- |
+| E2B        | Pricing formula constants                | Edit `CPU_PER_HOUR` / `MEM_PER_GB_HOUR` in `e2b.fetcher.ts` |
+| E2B        | Available size combos                    | Edit `E2B_SIZES` array in `e2b.fetcher.ts`                  |
+| Docker     | Tier definitions (vCPU, memory, storage) | Edit `TIERS` in `docker.fetcher.ts`                         |
+| Docker     | Per-tier pricing                         | `CATALOG_DOCKER_*_PRICE_HR` env vars (no code change)       |
+| Kubernetes | Tier definitions                         | Edit `TIERS` in `kubernetes.fetcher.ts`                     |
+| Kubernetes | Per-tier pricing                         | `CATALOG_K8S_*_PRICE_HR` env vars (no code change)          |
+| DevPod     | Generic local/SSH tiers                  | Edit `DEVPOD_SIZES` in `devpod.fetcher.ts`                  |
+
+#### Storage and network pricing
+
+All fetchers fall back to the static values in `apps/api/src/services/costs/pricing.ts` for storage ($/GB/month) and network egress ($/GB + free tier). To update these, edit the corresponding `ProviderPricing` object in that file.
+
+### Troubleshooting
+
+- **"Using static pricing" in the UI**: The API key for that provider is missing or invalid, or the provider's API is down. Check your `.env` and API logs.
+- **Stale prices**: Force a refresh via `POST /providers/:provider/compute-catalog/refresh` or restart the API (the worker runs immediately on startup).
+- **Redis unavailable**: The catalog service falls back to live API calls on each request (slower but functional). If the API call also fails, static pricing is returned.
+- **GCP returns 403**: The Cloud Billing API must be enabled on the GCP project that owns the API key. Visit [Cloud Billing API](https://console.cloud.google.com/apis/library/cloudbilling.googleapis.com) in the correct project and click **Enable**.
+
+---
+
 ## Sindri CLI Integration Points
 
 The API calls the Sindri CLI binary at runtime for registry queries and version detection. When developing features that touch these paths:
@@ -326,3 +557,7 @@ See [Versioning](./VERSIONING.md) for the full version management documentation.
 - [RBAC](./RBAC.md) — full authorization matrix and team-scoped access control
 - [ADR-0002](./adr/0002-oidc-magic-link-authentication.md) — authentication design decisions
 - [ADR-0003](./adr/0003-rbac-authorization-model.md) — authorization model design decisions
+- [ADR-0004](./adr/0004-dynamic-compute-catalog.md) — dynamic compute catalog architecture
+- [ADR-0005](./adr/0005-provider-pricing-data-sources.md) — provider pricing data source decisions
+- [ADR-0006](./adr/0006-pricing-credential-isolation.md) — PRICING\_ prefix naming convention
+- [ADR-0007](./adr/0007-integration-registry-and-credential-management.md) — integration registry and credential management

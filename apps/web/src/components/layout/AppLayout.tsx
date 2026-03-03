@@ -1,4 +1,6 @@
 import { type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { ShieldOff } from "lucide-react";
 import { Sidebar } from "./Sidebar";
 import { useUIStore } from "@/stores/uiStore";
 import { cn } from "@/lib/utils";
@@ -7,6 +9,27 @@ import { CommandPalette } from "@/components/command-palette";
 
 interface AppLayoutProps {
   children: ReactNode;
+}
+
+function AuthBypassBanner() {
+  const { data } = useQuery({
+    queryKey: ["app-config"],
+    queryFn: async () => {
+      const res = await fetch("/api/config");
+      if (!res.ok) return { authBypass: false };
+      return res.json() as Promise<{ authBypass: boolean }>;
+    },
+    staleTime: Infinity,
+  });
+
+  if (!data?.authBypass) return null;
+
+  return (
+    <div className="flex items-center justify-center gap-2 bg-amber-500 px-3 py-1.5 text-xs font-medium text-black">
+      <ShieldOff className="h-3.5 w-3.5" />
+      Auth bypass active — all requests authenticate as seed admin. Do not use in production.
+    </div>
+  );
 }
 
 export function AppLayout({ children }: AppLayoutProps) {
@@ -24,6 +47,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           sidebarCollapsed ? "ml-0" : "ml-0",
         )}
       >
+        <AuthBypassBanner />
         <div className="flex-1 overflow-auto">{children}</div>
       </main>
       <CommandPalette />

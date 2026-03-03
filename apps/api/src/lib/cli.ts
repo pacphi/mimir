@@ -43,6 +43,20 @@ export class CliExitError extends Error {
 }
 
 /**
+ * Returns true if the sindri binary is explicitly configured and exists on disk.
+ * Returns false when the only option is a bare PATH lookup (not verifiable without exec).
+ */
+export function isCliConfigured(): boolean {
+  const explicit = process.env.SINDRI_BIN_PATH;
+  if (explicit) return existsSync(explicit);
+
+  const localNpm = "./node_modules/.bin/sindri";
+  if (existsSync(localNpm)) return true;
+
+  return false;
+}
+
+/**
  * Resolves the sindri binary path using the fallback chain.
  * Returns the resolved path or throws CliNotFoundError.
  */
@@ -58,13 +72,57 @@ export function getSindriBin(): string {
 }
 
 /**
+ * Runs a sindri subcommand and returns raw stdout/stderr without forcing --json.
+ * Use this for commands like `deploy` that stream human-readable output.
+ *
+ * @param args      CLI arguments (e.g. ["deploy", "--config", "/tmp/foo.yaml"])
+ * @param env       Optional environment variables merged into process.env
+ * @param timeoutMs Override timeout (defaults to SINDRI_CLI_TIMEOUT_MS or 300 000 ms)
+ */
+export async function runCliCapture(
+  args: string[],
+  env?: Record<string, string>,
+  timeoutMs?: number,
+): Promise<{ stdout: string; stderr: string }> {
+  const bin = getSindriBin();
+  const effectiveTimeout = timeoutMs ?? parseInt(process.env.SINDRI_CLI_TIMEOUT_MS ?? "300000", 10);
+
+  logger.debug({ bin, args }, "Running sindri CLI (capture)");
+
+  try {
+    const { stdout, stderr } = await execFileAsync(bin, args, {
+      timeout: effectiveTimeout,
+      maxBuffer: 10 * 1024 * 1024,
+      ...(env ? { env: { ...process.env, ...env } } : {}),
+    });
+    return { stdout, stderr };
+  } catch (err: unknown) {
+    if (err instanceof Error) {
+      const nodeErr = err as NodeJS.ErrnoException & { killed?: boolean; stderr?: string };
+
+      if (nodeErr.killed || nodeErr.code === "ETIMEDOUT") {
+        throw new CliTimeoutError(effectiveTimeout);
+      }
+
+      if (nodeErr.code === "ENOENT") {
+        throw new CliNotFoundError();
+      }
+
+      throw new CliExitError(err.message, nodeErr.stderr ?? "");
+    }
+    throw err;
+  }
+}
+
+/**
  * Runs a sindri subcommand with --json appended and returns the parsed output.
  *
  * @param args  CLI arguments (e.g. ["extension", "list", "--all"])
+ * @param env   Optional additional environment variables merged into process.env
  * @returns     Parsed JSON output cast to T
  * @throws      CliNotFoundError | CliTimeoutError | CliExitError | SyntaxError
  */
-export async function runCliJson<T>(args: string[]): Promise<T> {
+export async function runCliJson<T>(args: string[], env?: Record<string, string>): Promise<T> {
   const bin = getSindriBin();
   const timeoutMs = parseInt(process.env.SINDRI_CLI_TIMEOUT_MS ?? "15000", 10);
 
@@ -74,6 +132,7 @@ export async function runCliJson<T>(args: string[]): Promise<T> {
     const { stdout } = await execFileAsync(bin, [...args, "--json"], {
       timeout: timeoutMs,
       maxBuffer: 10 * 1024 * 1024, // 10 MB
+      ...(env ? { env: { ...process.env, ...env } } : {}),
     });
     return JSON.parse(stdout) as T;
   } catch (err: unknown) {

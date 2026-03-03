@@ -14,7 +14,7 @@
 import { Hono } from "hono";
 import { authMiddleware } from "../middleware/auth.js";
 import { rateLimitDefault } from "../middleware/rateLimit.js";
-import { runCliJson, CliNotFoundError, CliTimeoutError } from "../lib/cli.js";
+import { runCliJson, isCliConfigured, CliNotFoundError, CliTimeoutError } from "../lib/cli.js";
 import { logger } from "../lib/logger.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -74,6 +74,20 @@ function cliUnavailableResponse(err: unknown): { error: string; message: string;
 const registry = new Hono();
 
 registry.use("*", authMiddleware);
+
+// ─── GET /api/v1/registry/cli-status ─────────────────────────────────────────
+
+registry.get("/cli-status", rateLimitDefault, (c) => {
+  const available = isCliConfigured();
+  if (available) {
+    return c.json({ available: true });
+  }
+  return c.json({
+    available: false,
+    message:
+      "Sindri CLI is not configured. Set SINDRI_BIN_PATH to the sindri binary path before starting deployments.",
+  });
+});
 
 // ─── GET /api/v1/registry/extensions ─────────────────────────────────────────
 

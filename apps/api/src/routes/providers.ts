@@ -1,17 +1,21 @@
 /**
  * Provider catalog routes.
  *
- * GET /api/v1/providers                    — list all supported providers
- * GET /api/v1/providers/:provider/regions  — list regions for a provider
- * GET /api/v1/providers/:provider/vm-sizes — list VM sizes for a provider
+ * GET  /api/v1/providers                                    — list all supported providers
+ * GET  /api/v1/providers/:provider/regions                  — list regions for a provider
+ * GET  /api/v1/providers/:provider/compute-catalog          — compute sizes with live pricing
+ * GET  /api/v1/providers/:provider/compute-catalog/estimate — cost estimate for a specific size
+ * POST /api/v1/providers/:provider/compute-catalog/refresh  — force refresh cached catalog (admin only)
  */
 
 import { Hono } from "hono";
 import { authMiddleware } from "../middleware/auth.js";
-import { rateLimitDefault } from "../middleware/rateLimit.js";
+import { rateLimitDefault, rateLimitStrict } from "../middleware/rateLimit.js";
+import { logger } from "../lib/logger.js";
+import { getCatalog, refreshCatalog, estimateCost } from "../services/catalog/catalog.service.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Static provider catalog (extend with live API calls per provider as needed)
+// Static provider metadata (no pricing or VM sizes — served dynamically)
 // ─────────────────────────────────────────────────────────────────────────────
 
 const PROVIDERS = [
@@ -20,55 +24,24 @@ const PROVIDERS = [
     name: "Fly.io",
     description: "Global app hosting platform with edge deployments",
     regions: [
-      { id: "iad", name: "Ashburn, VA", location: "US East" },
-      { id: "lax", name: "Los Angeles, CA", location: "US West" },
-      { id: "ord", name: "Chicago, IL", location: "US Central" },
-      { id: "lhr", name: "London", location: "EU West" },
-      { id: "fra", name: "Frankfurt", location: "EU Central" },
-      { id: "nrt", name: "Tokyo", location: "Asia Pacific" },
-      { id: "syd", name: "Sydney", location: "Oceania" },
-    ],
-    vm_sizes: [
-      {
-        id: "shared-cpu-1x",
-        name: "Shared CPU 1x",
-        vcpus: 1,
-        memory_gb: 0.25,
-        storage_gb: 1,
-        price_per_hour: 0.001,
-      },
-      {
-        id: "shared-cpu-2x",
-        name: "Shared CPU 2x",
-        vcpus: 2,
-        memory_gb: 0.5,
-        storage_gb: 1,
-        price_per_hour: 0.002,
-      },
-      {
-        id: "performance-2x",
-        name: "Performance 2x",
-        vcpus: 2,
-        memory_gb: 4,
-        storage_gb: 40,
-        price_per_hour: 0.05,
-      },
-      {
-        id: "performance-4x",
-        name: "Performance 4x",
-        vcpus: 4,
-        memory_gb: 8,
-        storage_gb: 80,
-        price_per_hour: 0.1,
-      },
-      {
-        id: "performance-8x",
-        name: "Performance 8x",
-        vcpus: 8,
-        memory_gb: 16,
-        storage_gb: 160,
-        price_per_hour: 0.2,
-      },
+      { id: "ams", name: "Amsterdam, Netherlands", location: "EU West 1" },
+      { id: "arn", name: "Stockholm, Sweden", location: "EU North" },
+      { id: "bom", name: "Mumbai, India", location: "Asia South" },
+      { id: "cdg", name: "Paris, France", location: "EU West 2" },
+      { id: "dfw", name: "Dallas, Texas", location: "US Central 1" },
+      { id: "ewr", name: "Secaucus, NJ", location: "US East 1" },
+      { id: "fra", name: "Frankfurt, Germany", location: "EU Central" },
+      { id: "gru", name: "Sao Paulo, Brazil", location: "South America" },
+      { id: "iad", name: "Ashburn, Virginia", location: "US East 2" },
+      { id: "jnb", name: "Johannesburg, South Africa", location: "Africa" },
+      { id: "lax", name: "Los Angeles, California", location: "US West 1" },
+      { id: "lhr", name: "London, United Kingdom", location: "EU West 3" },
+      { id: "nrt", name: "Tokyo, Japan", location: "Asia East" },
+      { id: "ord", name: "Chicago, Illinois", location: "US Central 2" },
+      { id: "sin", name: "Singapore", location: "Asia Southeast" },
+      { id: "sjc", name: "San Jose, California", location: "US West 2" },
+      { id: "syd", name: "Sydney, Australia", location: "Oceania" },
+      { id: "yyz", name: "Toronto, Canada", location: "Canada" },
     ],
   },
   {
@@ -76,24 +49,23 @@ const PROVIDERS = [
     name: "Docker",
     description: "Local Docker container deployment",
     regions: [{ id: "local", name: "Local", location: "Local Machine" }],
-    vm_sizes: [
-      { id: "small", name: "Small", vcpus: 1, memory_gb: 1, storage_gb: 10, price_per_hour: 0 },
-      { id: "medium", name: "Medium", vcpus: 2, memory_gb: 4, storage_gb: 20, price_per_hour: 0 },
-      { id: "large", name: "Large", vcpus: 4, memory_gb: 8, storage_gb: 40, price_per_hour: 0 },
-    ],
   },
   {
-    id: "devpod",
-    name: "DevPod",
-    description: "Remote development environments via DevPod",
+    id: "digitalocean",
+    name: "DigitalOcean",
+    description: "DigitalOcean Droplets via DevPod",
     regions: [
-      { id: "local", name: "Local", location: "Local Machine" },
-      { id: "ssh", name: "SSH Remote", location: "Remote Server" },
-    ],
-    vm_sizes: [
-      { id: "small", name: "Small", vcpus: 1, memory_gb: 2, storage_gb: 20, price_per_hour: 0 },
-      { id: "medium", name: "Medium", vcpus: 2, memory_gb: 4, storage_gb: 40, price_per_hour: 0 },
-      { id: "large", name: "Large", vcpus: 4, memory_gb: 8, storage_gb: 80, price_per_hour: 0 },
+      { id: "nyc1", name: "New York 1", location: "US East" },
+      { id: "nyc3", name: "New York 3", location: "US East" },
+      { id: "ams3", name: "Amsterdam 3", location: "EU West" },
+      { id: "sfo2", name: "San Francisco 2", location: "US West" },
+      { id: "sfo3", name: "San Francisco 3", location: "US West" },
+      { id: "fra1", name: "Frankfurt 1", location: "EU Central" },
+      { id: "lon1", name: "London 1", location: "EU West" },
+      { id: "sgp1", name: "Singapore 1", location: "Asia Southeast" },
+      { id: "tor1", name: "Toronto 1", location: "Canada" },
+      { id: "blr1", name: "Bangalore 1", location: "Asia South" },
+      { id: "syd1", name: "Sydney 1", location: "Oceania" },
     ],
   },
   {
@@ -103,18 +75,6 @@ const PROVIDERS = [
     regions: [
       { id: "us-east-1", name: "US East", location: "AWS us-east-1" },
       { id: "eu-west-1", name: "EU West", location: "AWS eu-west-1" },
-    ],
-    vm_sizes: [
-      { id: "nano", name: "Nano", vcpus: 2, memory_gb: 0.5, storage_gb: 1, price_per_hour: 0.004 },
-      { id: "small", name: "Small", vcpus: 2, memory_gb: 1, storage_gb: 5, price_per_hour: 0.008 },
-      {
-        id: "medium",
-        name: "Medium",
-        vcpus: 4,
-        memory_gb: 2,
-        storage_gb: 10,
-        price_per_hour: 0.016,
-      },
     ],
   },
   {
@@ -126,12 +86,6 @@ const PROVIDERS = [
       { id: "production", name: "Production", location: "Cluster Production" },
       { id: "staging", name: "Staging", location: "Cluster Staging" },
     ],
-    vm_sizes: [
-      { id: "small", name: "Small", vcpus: 0.5, memory_gb: 0.5, storage_gb: 5, price_per_hour: 0 },
-      { id: "medium", name: "Medium", vcpus: 1, memory_gb: 2, storage_gb: 10, price_per_hour: 0 },
-      { id: "large", name: "Large", vcpus: 2, memory_gb: 4, storage_gb: 20, price_per_hour: 0 },
-      { id: "xlarge", name: "XLarge", vcpus: 4, memory_gb: 8, storage_gb: 50, price_per_hour: 0 },
-    ],
   },
   {
     id: "runpod",
@@ -141,48 +95,6 @@ const PROVIDERS = [
       { id: "us-east-1", name: "US East", location: "US East Coast" },
       { id: "us-west-2", name: "US West", location: "US West Coast" },
       { id: "eu-central-1", name: "EU Central", location: "Europe" },
-    ],
-    vm_sizes: [
-      {
-        id: "cpu-1x",
-        name: "CPU 1x",
-        vcpus: 2,
-        memory_gb: 4,
-        storage_gb: 20,
-        price_per_hour: 0.025,
-      },
-      {
-        id: "cpu-2x",
-        name: "CPU 2x",
-        vcpus: 4,
-        memory_gb: 8,
-        storage_gb: 40,
-        price_per_hour: 0.05,
-      },
-      {
-        id: "gpu-3090",
-        name: "RTX 3090",
-        vcpus: 16,
-        memory_gb: 24,
-        storage_gb: 200,
-        price_per_hour: 0.44,
-      },
-      {
-        id: "gpu-4090",
-        name: "RTX 4090",
-        vcpus: 16,
-        memory_gb: 24,
-        storage_gb: 200,
-        price_per_hour: 0.69,
-      },
-      {
-        id: "gpu-a100",
-        name: "A100 80GB",
-        vcpus: 32,
-        memory_gb: 80,
-        storage_gb: 500,
-        price_per_hour: 1.99,
-      },
     ],
   },
   {
@@ -196,47 +108,54 @@ const PROVIDERS = [
       { id: "eu-central-1", name: "EU Central", location: "Europe Central" },
       { id: "ap-southeast-1", name: "Asia Pacific", location: "Singapore" },
     ],
-    vm_sizes: [
-      {
-        id: "nf-compute-10",
-        name: "Compute 10",
-        vcpus: 0.1,
-        memory_gb: 0.5,
-        storage_gb: 1,
-        price_per_hour: 0.01,
-      },
-      {
-        id: "nf-compute-20",
-        name: "Compute 20",
-        vcpus: 0.2,
-        memory_gb: 0.5,
-        storage_gb: 5,
-        price_per_hour: 0.015,
-      },
-      {
-        id: "nf-compute-50",
-        name: "Compute 50",
-        vcpus: 0.5,
-        memory_gb: 1,
-        storage_gb: 10,
-        price_per_hour: 0.025,
-      },
-      {
-        id: "nf-compute-100",
-        name: "Compute 100",
-        vcpus: 1,
-        memory_gb: 2,
-        storage_gb: 20,
-        price_per_hour: 0.05,
-      },
-      {
-        id: "nf-compute-200",
-        name: "Compute 200",
-        vcpus: 2,
-        memory_gb: 4,
-        storage_gb: 40,
-        price_per_hour: 0.1,
-      },
+  },
+  {
+    id: "aws",
+    name: "AWS",
+    description: "Amazon Web Services EC2 instances",
+    regions: [
+      { id: "us-east-1", name: "US East (N. Virginia)", location: "US East 1" },
+      { id: "us-east-2", name: "US East (Ohio)", location: "US East 2" },
+      { id: "us-west-1", name: "US West (N. California)", location: "US West 1" },
+      { id: "us-west-2", name: "US West (Oregon)", location: "US West 2" },
+      { id: "eu-west-1", name: "Europe (Ireland)", location: "EU West 1" },
+      { id: "eu-west-2", name: "Europe (London)", location: "EU West 2" },
+      { id: "eu-central-1", name: "Europe (Frankfurt)", location: "EU Central 1" },
+      { id: "ap-southeast-1", name: "Asia Pacific (Singapore)", location: "AP Southeast 1" },
+      { id: "ap-northeast-1", name: "Asia Pacific (Tokyo)", location: "AP Northeast 1" },
+      { id: "sa-east-1", name: "South America (Sao Paulo)", location: "SA East 1" },
+    ],
+  },
+  {
+    id: "gcp",
+    name: "GCP",
+    description: "Google Cloud Platform Compute Engine",
+    regions: [
+      { id: "us-central1", name: "US Central (Iowa)", location: "US Central" },
+      { id: "us-east1", name: "US East (S. Carolina)", location: "US East" },
+      { id: "us-west1", name: "US West (Oregon)", location: "US West" },
+      { id: "europe-west1", name: "Europe West (Belgium)", location: "EU West" },
+      { id: "europe-west4", name: "Europe West (Netherlands)", location: "EU West 4" },
+      { id: "asia-east1", name: "Asia East (Taiwan)", location: "Asia East" },
+      { id: "asia-southeast1", name: "Asia Southeast (Singapore)", location: "Asia Southeast" },
+      { id: "southamerica-east1", name: "South America (Sao Paulo)", location: "SA East" },
+    ],
+  },
+  {
+    id: "azure",
+    name: "Azure",
+    description: "Microsoft Azure Virtual Machines",
+    regions: [
+      { id: "us-east-1", name: "East US", location: "US East" },
+      { id: "us-east-2", name: "East US 2", location: "US East 2" },
+      { id: "us-west-1", name: "West US", location: "US West" },
+      { id: "us-west-2", name: "West US 2", location: "US West 2" },
+      { id: "eu-west-1", name: "West Europe", location: "EU West" },
+      { id: "eu-west-2", name: "UK South", location: "EU West 2" },
+      { id: "eu-central-1", name: "Germany West Central", location: "EU Central" },
+      { id: "ap-southeast-1", name: "Southeast Asia", location: "AP Southeast" },
+      { id: "ap-northeast-1", name: "Japan East", location: "AP Northeast" },
+      { id: "sa-east-1", name: "Brazil South", location: "SA East" },
     ],
   },
 ] as const;
@@ -254,7 +173,7 @@ providers.use("*", authMiddleware);
 // ─── GET /api/v1/providers ────────────────────────────────────────────────────
 
 providers.get("/", rateLimitDefault, (c) => {
-  const list = PROVIDERS.map(({ vm_sizes: _vmSizes, regions: _regions, ...rest }) => rest);
+  const list = PROVIDERS.map(({ regions: _regions, ...rest }) => rest);
   return c.json({ providers: list });
 });
 
@@ -271,17 +190,144 @@ providers.get("/:provider/regions", rateLimitDefault, (c) => {
   return c.json({ regions: provider?.regions ?? [] });
 });
 
-// ─── GET /api/v1/providers/:provider/vm-sizes ────────────────────────────────
+// ─── GET /api/v1/providers/:provider/compute-catalog ─────────────────────────
 
-providers.get("/:provider/vm-sizes", rateLimitDefault, (c) => {
+providers.get("/:provider/compute-catalog", rateLimitDefault, async (c) => {
   const providerId = c.req.param("provider");
 
   if (!VALID_PROVIDER_IDS.includes(providerId as (typeof VALID_PROVIDER_IDS)[number])) {
     return c.json({ error: "Not Found", message: `Provider '${providerId}' not found` }, 404);
   }
 
-  const provider = PROVIDERS.find((p) => p.id === providerId);
-  return c.json({ vm_sizes: provider?.vm_sizes ?? [] });
+  const region = c.req.query("region");
+
+  try {
+    const catalog = await getCatalog(providerId, region ?? undefined);
+    if (!catalog) {
+      return c.json(
+        {
+          error: "Service Unavailable",
+          message: `Compute catalog for '${providerId}' is currently unavailable. The pricing data could not be fetched — please try again later.`,
+        },
+        503,
+      );
+    }
+
+    return c.json({
+      sizes: catalog.sizes,
+      storage_pricing: {
+        gb_per_month: catalog.storage_price_gb_month,
+      },
+      network_pricing: {
+        egress_gb_price: catalog.network_egress_gb_price,
+        egress_free_gb: catalog.network_egress_free_gb,
+      },
+      fetched_at: catalog.fetched_at,
+      source: catalog.source,
+    });
+  } catch (err) {
+    logger.error({ err, provider: providerId }, "Failed to fetch compute catalog");
+    return c.json(
+      {
+        error: "Internal Server Error",
+        message:
+          "An unexpected error occurred while fetching the compute catalog. Please try again later.",
+      },
+      500,
+    );
+  }
+});
+
+// ─── GET /api/v1/providers/:provider/compute-catalog/estimate ────────────────
+
+providers.get("/:provider/compute-catalog/estimate", rateLimitDefault, async (c) => {
+  const providerId = c.req.param("provider");
+
+  if (!VALID_PROVIDER_IDS.includes(providerId as (typeof VALID_PROVIDER_IDS)[number])) {
+    return c.json({ error: "Not Found", message: `Provider '${providerId}' not found` }, 404);
+  }
+
+  const sizeId = c.req.query("size_id");
+  if (!sizeId) {
+    return c.json({ error: "Bad Request", message: "size_id query parameter is required" }, 400);
+  }
+
+  const region = c.req.query("region");
+  const diskGb = parseInt(c.req.query("disk_gb") ?? "20", 10);
+  const egressGb = parseInt(c.req.query("egress_gb") ?? "10", 10);
+
+  try {
+    const estimate = await estimateCost(providerId, sizeId, diskGb, egressGb, region ?? undefined);
+    if (!estimate) {
+      return c.json(
+        {
+          error: "Not Found",
+          message: `Size '${sizeId}' not found for provider '${providerId}', or pricing data is currently unavailable.`,
+        },
+        404,
+      );
+    }
+
+    return c.json(estimate);
+  } catch (err) {
+    logger.error({ err, provider: providerId, sizeId }, "Failed to estimate cost");
+    return c.json(
+      {
+        error: "Internal Server Error",
+        message: "An unexpected error occurred while estimating costs. Please try again later.",
+      },
+      500,
+    );
+  }
+});
+
+// ─── POST /api/v1/providers/:provider/compute-catalog/refresh ────────────────
+
+providers.post("/:provider/compute-catalog/refresh", rateLimitStrict, async (c) => {
+  const providerId = c.req.param("provider");
+
+  if (!VALID_PROVIDER_IDS.includes(providerId as (typeof VALID_PROVIDER_IDS)[number])) {
+    return c.json({ error: "Not Found", message: `Provider '${providerId}' not found` }, 404);
+  }
+
+  // Admin-only
+  const auth = c.var.auth;
+  if (auth.role !== "ADMIN") {
+    return c.json({ error: "Forbidden", message: "Admin role required" }, 403);
+  }
+
+  const region = c.req.query("region");
+
+  try {
+    const catalog = await refreshCatalog(providerId, region ?? undefined);
+    if (!catalog) {
+      return c.json(
+        {
+          error: "Service Unavailable",
+          message: `Failed to refresh catalog for '${providerId}'. The provider's pricing API may be unavailable.`,
+        },
+        503,
+      );
+    }
+
+    return c.json({
+      message: "Catalog refreshed",
+      provider: providerId,
+      sizes_count: catalog.sizes.length,
+      source: catalog.source,
+      fetched_at: catalog.fetched_at,
+    });
+  } catch (err) {
+    logger.error({ err, provider: providerId }, "Failed to refresh catalog");
+    return c.json(
+      {
+        error: "Internal Server Error",
+        message:
+          "An unexpected error occurred while refreshing the catalog. Please try again later.",
+      },
+      500,
+    );
+  }
 });
 
 export { providers as providersRouter };

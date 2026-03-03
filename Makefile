@@ -2,6 +2,10 @@
 # Mimir — Fleet Management Control Plane
 # ============================================================================
 
+# Load root .env so POSTGRES_* vars are available to Prisma commands
+-include .env
+export
+
 .PHONY: help install build dev dev-full test test-coverage lint typecheck \
 	fmt fmt-check audit deadcode \
 	deps-upgrade deps-upgrade-interactive deps-outdated \

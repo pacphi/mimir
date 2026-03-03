@@ -51,7 +51,8 @@ me.get("/", async (c) => {
     return c.json({ error: "Not Found", message: "User not found" }, 404);
   }
 
-  return c.json(user);
+  // Use the effective role from the auth context (e.g. dev bypass may override)
+  return c.json({ ...user, role: auth.role });
 });
 
 me.get("/api-keys", async (c) => {
@@ -60,9 +61,11 @@ me.get("/api-keys", async (c) => {
     where: { user_id: auth.userId },
     select: {
       id: true,
+      key_prefix: true,
       name: true,
       created_at: true,
       expires_at: true,
+      last_used_at: true,
     },
     orderBy: { created_at: "desc" },
   });
@@ -90,17 +93,20 @@ me.post("/api-keys", async (c) => {
   const { name, expires_in_days } = parsed.data;
   const rawKey = `sk-${randomBytes(24).toString("hex")}`;
   const keyHash = createHash("sha256").update(rawKey).digest("hex");
+  const keyPrefix = rawKey.slice(0, 10);
   const expiresAt = expires_in_days ? new Date(Date.now() + expires_in_days * 86400 * 1000) : null;
 
   const apiKey = await db.apiKey.create({
     data: {
       user_id: auth.userId,
       key_hash: keyHash,
+      key_prefix: keyPrefix,
       name,
       expires_at: expiresAt,
     },
     select: {
       id: true,
+      key_prefix: true,
       name: true,
       created_at: true,
       expires_at: true,

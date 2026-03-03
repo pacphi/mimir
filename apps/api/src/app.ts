@@ -32,6 +32,8 @@ import { secretsRouter } from "./routes/secrets.js";
 import { profilesRouter } from "./routes/profiles.js";
 import { registryRouter } from "./routes/registry.js";
 import { versionRouter } from "./routes/version.js";
+import { integrationsRouter } from "./routes/integrations.js";
+import { wsTicketRouter } from "./routes/ws-ticket.js";
 import { authRouter } from "./routes/auth.js";
 import { meRouter } from "./routes/me.js";
 import { devAuthMiddleware, isDevAuthBypassEnabled } from "./middleware/devAuth.js";
@@ -102,6 +104,8 @@ export function createApp(): Hono {
   app.route("/api/v1/profiles", profilesRouter);
   app.route("/api/v1/registry", registryRouter);
   app.route("/api/v1/version", versionRouter);
+  app.route("/api/v1/integrations", integrationsRouter);
+  app.route("/api/v1/ws", wsTicketRouter);
 
   // 404 handler
   app.notFound((c) => {

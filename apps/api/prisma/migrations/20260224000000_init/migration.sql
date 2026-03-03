@@ -211,9 +211,9 @@ CREATE TABLE "Heartbeat" (
     CONSTRAINT "Heartbeat_instance_id_fkey" FOREIGN KEY ("instance_id") REFERENCES "Instance"("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
-CREATE INDEX "Heartbeat_instance_id_idx"           ON "Heartbeat" ("instance_id");
-CREATE INDEX "Heartbeat_timestamp_idx"             ON "Heartbeat" ("timestamp");
-CREATE INDEX "Heartbeat_instance_id_timestamp_idx" ON "Heartbeat" ("instance_id", "timestamp");
+CREATE INDEX IF NOT EXISTS "Heartbeat_instance_id_idx"           ON "Heartbeat" ("instance_id");
+CREATE INDEX IF NOT EXISTS "Heartbeat_timestamp_idx"             ON "Heartbeat" ("timestamp");
+CREATE INDEX IF NOT EXISTS "Heartbeat_instance_id_timestamp_idx" ON "Heartbeat" ("instance_id", "timestamp");
 
 SELECT create_hypertable(
     '"Heartbeat"',
@@ -295,8 +295,8 @@ SELECT create_hypertable(
     if_not_exists       => TRUE
 );
 
-CREATE INDEX "Metric_instance_id_timestamp_idx" ON "Metric" ("instance_id", "timestamp" DESC);
-CREATE INDEX "Metric_timestamp_idx"             ON "Metric" ("timestamp" DESC);
+CREATE INDEX IF NOT EXISTS "Metric_instance_id_timestamp_idx" ON "Metric" ("instance_id", "timestamp" DESC);
+CREATE INDEX IF NOT EXISTS "Metric_timestamp_idx"             ON "Metric" ("timestamp" DESC);
 
 -- Continuous aggregate: hourly rollup
 CREATE MATERIALIZED VIEW IF NOT EXISTS "MetricHourly"

@@ -1,9 +1,10 @@
 import type {
+  ComputeCatalogResponse,
+  CostEstimate,
   CreateDeploymentRequest,
   CreateDeploymentResponse,
   Deployment,
   Provider,
-  VmSize,
 } from "@/types/deployment";
 import { apiFetch } from "@/lib/api-fetch";
 
@@ -31,8 +32,27 @@ export const providersApi = {
     return apiFetch(`/providers/${provider}/regions`);
   },
 
-  getVmSizes(provider: string): Promise<{ vm_sizes: VmSize[] }> {
-    return apiFetch(`/providers/${provider}/vm-sizes`);
+  getComputeCatalog(provider: string, region?: string): Promise<ComputeCatalogResponse> {
+    const params = region ? `?region=${encodeURIComponent(region)}` : "";
+    return apiFetch(`/providers/${provider}/compute-catalog${params}`);
+  },
+
+  estimateCost(
+    provider: string,
+    sizeId: string,
+    diskGb?: number,
+    egressGb?: number,
+  ): Promise<CostEstimate> {
+    const params = new URLSearchParams({ size_id: sizeId });
+    if (diskGb != null) params.set("disk_gb", String(diskGb));
+    if (egressGb != null) params.set("egress_gb", String(egressGb));
+    return apiFetch(`/providers/${provider}/compute-catalog/estimate?${params}`);
+  },
+};
+
+export const registryApi = {
+  getCliStatus(): Promise<{ available: boolean; message?: string }> {
+    return apiFetch("/registry/cli-status");
   },
 };
 

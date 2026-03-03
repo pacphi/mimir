@@ -38,7 +38,11 @@ export interface DeploymentConfig {
   storageGb: number;
   secrets: DeploymentSecret[];
   selectedExtensions: string[];
+  devpodBackend?: "aws" | "gcp" | "azure" | "digitalocean" | "ssh" | "local";
+  providerOptions?: Record<string, unknown>;
 }
+
+export type WizardMode = "guided" | "expert" | null;
 
 export interface Deployment {
   id: string;
@@ -69,9 +73,9 @@ export interface CreateDeploymentRequest {
   name: string;
   provider: string;
   region: string;
-  vm_size: string;
-  memory_gb: number;
-  storage_gb: number;
+  vm_size?: string;
+  memory_gb?: number;
+  storage_gb?: number;
   yaml_config: string;
   template_id?: string;
   secrets?: Record<string, string>;
@@ -79,4 +83,47 @@ export interface CreateDeploymentRequest {
 
 export interface CreateDeploymentResponse {
   deployment: Deployment;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Compute Catalog types (matches backend ComputeSize / ComputeCatalog)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ComputeSize {
+  id: string;
+  name: string;
+  provider: string;
+  category: "cpu" | "gpu";
+  vcpus: number;
+  memory_gb: number;
+  storage_gb: number;
+  gpu_name?: string;
+  gpu_count?: number;
+  gpu_memory_gb?: number;
+  price_per_hour: number;
+  price_per_month: number;
+  price_source: "api" | "static" | "formula" | "none";
+  availability?: "high" | "low" | "none";
+  regions?: string[];
+}
+
+export interface ComputeCatalogResponse {
+  sizes: ComputeSize[];
+  storage_pricing: {
+    gb_per_month: number;
+  };
+  network_pricing: {
+    egress_gb_price: number;
+    egress_free_gb: number;
+  };
+  fetched_at: string;
+  source: "live" | "cached" | "fallback";
+}
+
+export interface CostEstimate {
+  compute: number;
+  storage: number;
+  network: number;
+  total: number;
+  currency: "USD";
 }

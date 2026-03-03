@@ -1,5 +1,11 @@
 /**
  * Development-only auth bypass middleware.
+ *
+ * Safety gates (ALL must be true):
+ *   1. NODE_ENV === "development"
+ *   2. AUTH_BYPASS === "true"
+ *
+ * An additional hard-fail in env-validation.ts blocks AUTH_BYPASS in production.
  */
 
 import type { Context, Next } from "hono";

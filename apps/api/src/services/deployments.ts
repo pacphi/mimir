@@ -1,17 +1,20 @@
 /**
  * Deployment service — orchestrates instance creation across providers.
  *
- * Creates a Deployment record in Postgres (via Prisma) and kicks off an
- * async provisioning simulation that emits progress events to Redis.
- * The WebSocket gateway subscribes per-deployment and streams events to
- * the browser client.
+ * Creates a Deployment record in Postgres (via Prisma) and invokes
+ * `sindri deploy` via the CLI binary. Progress events are emitted to Redis
+ * and streamed to the browser via the WebSocket gateway.
  */
 
 import { createHash } from "node:crypto";
+import { writeFile, unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Deployment } from "@prisma/client";
 import { db } from "../lib/db.js";
 import { redis, REDIS_CHANNELS } from "../lib/redis.js";
 import { logger } from "../lib/logger.js";
+import { runCliCapture, isCliConfigured } from "../lib/cli.js";
 
 export interface CreateDeploymentInput {
   name: string;
@@ -187,23 +190,39 @@ async function emitProgress(
   }
 }
 
-async function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 /**
- * Simulated provisioning flow.
- * In production, replace each step with the real provider SDK call.
+ * Provisioning flow — invokes `sindri deploy` via the CLI binary.
+ * Fails immediately and clearly if the CLI is not configured.
+ * Secrets are injected as subprocess environment variables (never written to disk).
+ * The YAML temp file is overwritten with zeros before deletion.
  */
 async function runProvisioningFlow(
   deploymentId: string,
   input: CreateDeploymentInput,
 ): Promise<void> {
   const logLines: string[] = [];
-
   function appendLog(line: string): void {
     logLines.push(line);
   }
+
+  // ── Pre-flight: CLI must be configured ────────────────────────────────────
+  if (!isCliConfigured()) {
+    const message = "Sindri CLI is not configured — set SINDRI_BIN_PATH or install @sindri/cli";
+    await db.deployment
+      .update({
+        where: { id: deploymentId },
+        data: { status: "FAILED", error: message, completed_at: new Date(), logs: message },
+      })
+      .catch((dbErr: unknown) =>
+        logger.warn({ dbErr, deploymentId }, "Failed to persist CLI-not-found failure"),
+      );
+    await emitProgress(deploymentId, message, { type: "error", status: "FAILED" });
+    logger.error({ deploymentId }, message);
+    return;
+  }
+
+  let tmpFile: string | null = null;
+  let yamlByteLength = 0;
 
   try {
     // ── IN_PROGRESS ──────────────────────────────────────────────────────────
@@ -211,43 +230,42 @@ async function runProvisioningFlow(
       where: { id: deploymentId },
       data: { status: "IN_PROGRESS" },
     });
-
-    await emitProgress(deploymentId, "Provisioning infrastructure...", {
+    await emitProgress(deploymentId, "Starting deployment...", {
       type: "status",
       status: "IN_PROGRESS",
       progress_percent: 10,
     });
-    appendLog("Provisioning infrastructure...");
-    await sleep(1500);
+    appendLog("Starting deployment...");
 
-    await emitProgress(deploymentId, `Allocating VM on ${input.provider} (${input.region})...`, {
-      progress_percent: 25,
+    await emitProgress(deploymentId, `Targeting ${input.provider} (${input.region})...`, {
+      progress_percent: 20,
     });
-    appendLog(`Allocating VM on ${input.provider} (${input.region})...`);
-    await sleep(1500);
+    appendLog(`Targeting ${input.provider} (${input.region})...`);
 
-    await emitProgress(deploymentId, "Configuring instance...", { progress_percent: 40 });
-    appendLog("Configuring instance...");
-    await sleep(1000);
-
-    // Resolve console placeholders in YAML before applying
+    // ── Write YAML to temp file ───────────────────────────────────────────────
     const resolvedYaml = resolveConsolePlaceholders(input.yaml_config);
+    yamlByteLength = Buffer.byteLength(resolvedYaml, "utf-8");
+    tmpFile = join(tmpdir(), `sindri-deploy-${deploymentId}.yaml`);
+    await writeFile(tmpFile, resolvedYaml, "utf-8");
 
-    await emitProgress(deploymentId, "Applying YAML configuration...", { progress_percent: 55 });
-    appendLog("Applying YAML configuration...");
-    await sleep(1000);
+    // ── Run sindri deploy ─────────────────────────────────────────────────────
+    // Secrets are passed as env vars so YAML `secrets: [{source: env}]` entries resolve.
+    // They are never written to disk.
+    await emitProgress(deploymentId, "Running sindri deploy...", { progress_percent: 40 });
+    appendLog("Running sindri deploy...");
 
-    await emitProgress(deploymentId, "Installing extensions...", { progress_percent: 70 });
-    appendLog("Installing extensions...");
-    await sleep(1500);
+    const { stdout, stderr } = await runCliCapture(
+      ["deploy", "--config", tmpFile],
+      input.secrets ?? {},
+    );
+    if (stdout) appendLog(stdout.trim());
+    if (stderr) appendLog(stderr.trim());
 
-    await emitProgress(deploymentId, "Starting Sindri agent...", { progress_percent: 85 });
-    appendLog("Starting Sindri agent...");
-    await sleep(1000);
+    await emitProgress(deploymentId, "Registering instance...", { progress_percent: 85 });
+    appendLog("Registering instance in database...");
 
-    // ── Register instance in DB ──────────────────────────────────────────────
+    // ── Register / update instance record ────────────────────────────────────
     const parsedExtensions = ensureDraupnir(parseExtensionsFromYaml(resolvedYaml));
-
     const instance = await db.instance.upsert({
       where: { name: input.name },
       create: {
@@ -265,7 +283,6 @@ async function runProvisioningFlow(
       },
     });
 
-    appendLog("Instance registered in database.");
     appendLog("Instance is online and ready.");
 
     // ── SUCCEEDED ────────────────────────────────────────────────────────────
@@ -278,19 +295,16 @@ async function runProvisioningFlow(
         logs: logLines.join("\n"),
       },
     });
-
     await emitProgress(deploymentId, "Instance is online and ready", {
       type: "complete",
       status: "SUCCEEDED",
       progress_percent: 100,
       instance_id: instance.id,
     });
-
     logger.info({ deploymentId, instanceId: instance.id }, "Deployment completed successfully");
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error during provisioning";
     appendLog(`ERROR: ${message}`);
-
     await db.deployment
       .update({
         where: { id: deploymentId },
@@ -304,12 +318,24 @@ async function runProvisioningFlow(
       .catch((dbErr: unknown) =>
         logger.warn({ dbErr, deploymentId }, "Failed to persist failure state"),
       );
-
-    await emitProgress(deploymentId, message, {
-      type: "error",
-      status: "FAILED",
-    });
-
+    await emitProgress(deploymentId, message, { type: "error", status: "FAILED" });
     logger.error({ err, deploymentId }, "Deployment failed");
+  } finally {
+    // ── Secure cleanup ────────────────────────────────────────────────────────
+    // Overwrite temp file with zeros before unlinking so YAML (which contains
+    // the console API key) cannot be recovered from disk.
+    if (tmpFile) {
+      if (yamlByteLength > 0) {
+        await writeFile(tmpFile, Buffer.alloc(yamlByteLength, 0)).catch(() => undefined);
+      }
+      await unlink(tmpFile).catch(() => undefined);
+    }
+    // Remove secret value references from the input object (best-effort —
+    // V8 strings are immutable so GC handles actual memory reclamation).
+    if (input.secrets) {
+      for (const key of Object.keys(input.secrets)) {
+        delete (input.secrets as Record<string, string>)[key];
+      }
+    }
   }
 }

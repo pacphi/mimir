@@ -24,5 +24,6 @@ export default defineConfig({
   ...(datasourceUrl() ? { datasource: { url: datasourceUrl()! } } : {}),
   migrations: {
     path: "./prisma/migrations",
+    seed: "npx tsx prisma/seed.ts",
   },
 });

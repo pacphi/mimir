@@ -5,6 +5,7 @@
  * (configured in package.json under "prisma.seed")
  */
 
+import { PrismaPg } from "@prisma/adapter-pg";
 import {
   PrismaClient,
   InstanceStatus,
@@ -27,7 +28,19 @@ import {
 } from "@prisma/client";
 import * as crypto from "crypto";
 
-const prisma = new PrismaClient();
+function getDatabaseUrl(): string {
+  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
+  const user = process.env.POSTGRES_USER ?? "mimir";
+  const password = process.env.POSTGRES_PASSWORD ?? "";
+  const host = process.env.POSTGRES_HOST ?? "localhost";
+  const port = process.env.POSTGRES_PORT ?? "5432";
+  const db = process.env.POSTGRES_DB ?? "mimir";
+  return `postgresql://${user}:${encodeURIComponent(password)}@${host}:${port}/${db}`;
+}
+
+const prisma = new PrismaClient({
+  adapter: new PrismaPg({ connectionString: getDatabaseUrl() }),
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers

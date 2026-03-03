@@ -7,11 +7,20 @@ import { AuditLogViewer } from "./AuditLogViewer";
 import { SettingsPage } from "./SettingsPage";
 import { ProfileTab } from "./ProfileTab";
 import { ApiKeysTab } from "./ApiKeysTab";
+import { IntegrationsTab } from "./IntegrationsTab";
 import { cn } from "@/lib/utils";
-import { Users, Shield, ScrollText, Settings, Building2, User, Key } from "lucide-react";
+import { Users, Shield, ScrollText, Settings, Building2, User, Key, Plug } from "lucide-react";
 import { useSession } from "@/lib/auth-client";
 
-type AdminTab = "profile" | "api-keys" | "settings" | "users" | "teams" | "permissions" | "audit";
+type AdminTab =
+  | "profile"
+  | "api-keys"
+  | "settings"
+  | "integrations"
+  | "users"
+  | "teams"
+  | "permissions"
+  | "audit";
 
 interface TabDef {
   id: AdminTab;
@@ -24,6 +33,7 @@ const TABS: TabDef[] = [
   { id: "profile", label: "Profile", icon: User },
   { id: "api-keys", label: "API Keys", icon: Key },
   { id: "settings", label: "Settings", icon: Settings },
+  { id: "integrations", label: "Integrations", icon: Plug, adminOnly: true },
   { id: "users", label: "Users", icon: Users, adminOnly: true },
   { id: "teams", label: "Teams", icon: Building2, adminOnly: true },
   { id: "permissions", label: "Permissions", icon: Shield, adminOnly: true },
@@ -62,6 +72,7 @@ export function AdminPage() {
         {activeTab === "profile" && <ProfileTab />}
         {activeTab === "api-keys" && <ApiKeysTab />}
         {activeTab === "settings" && <SettingsPage />}
+        {activeTab === "integrations" && isAdmin && <IntegrationsTab />}
         {activeTab === "users" && isAdmin && <UsersPage />}
         {activeTab === "teams" && isAdmin && <TeamsPage />}
         {activeTab === "permissions" && isAdmin && <PermissionMatrix />}

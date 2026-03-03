@@ -311,11 +311,21 @@ Paginated responses include:
 
 ## Providers
 
-| Method | Path                                   | Min Role | Description              |
-| ------ | -------------------------------------- | -------- | ------------------------ |
-| `GET`  | `/api/v1/providers`                    | VIEWER   | List supported providers |
-| `GET`  | `/api/v1/providers/:provider/regions`  | VIEWER   | Regions for provider     |
-| `GET`  | `/api/v1/providers/:provider/vm-sizes` | VIEWER   | VM sizes for provider    |
+| Method | Path                                  | Min Role | Description              |
+| ------ | ------------------------------------- | -------- | ------------------------ |
+| `GET`  | `/api/v1/providers`                   | VIEWER   | List supported providers |
+| `GET`  | `/api/v1/providers/:provider/regions` | VIEWER   | Regions for provider     |
+
+### Compute Catalog
+
+| Method | Path                                                   | Min Role | Description                                     |
+| ------ | ------------------------------------------------------ | -------- | ----------------------------------------------- |
+| `GET`  | `/api/v1/providers/:provider/compute-catalog`          | VIEWER   | Compute sizes with live pricing for provider    |
+| `GET`  | `/api/v1/providers/:provider/compute-catalog/estimate` | VIEWER   | Cost estimate for a specific size + disk/egress |
+| `POST` | `/api/v1/providers/:provider/compute-catalog/refresh`  | ADMIN    | Force refresh cached catalog from provider API  |
+
+**Query params** (GET compute-catalog): `region`
+**Query params** (GET estimate): `size_id` (required), `disk_gb`, `egress_gb`
 
 ## Profiles
 
@@ -331,6 +341,25 @@ Paginated responses include:
 | `GET`  | `/api/v1/registry/extensions/categories` | VIEWER   | Derived categories            |
 | `GET`  | `/api/v1/registry/profiles`              | VIEWER   | Profiles from CLI             |
 | `GET`  | `/api/v1/registry/version`               | VIEWER   | Sindri CLI version info       |
+
+## Integrations
+
+| Method | Path                                         | Min Role | Description                            |
+| ------ | -------------------------------------------- | -------- | -------------------------------------- |
+| `GET`  | `/api/v1/integrations`                       | VIEWER   | All platform integrations with status  |
+| `GET`  | `/api/v1/integrations/:id`                   | VIEWER   | Single platform integration status     |
+| `GET`  | `/api/v1/integrations/providers`             | VIEWER   | All provider credential specs          |
+| `GET`  | `/api/v1/integrations/providers/:providerId` | VIEWER   | Single provider's required credentials |
+
+Returns `configured: boolean` for platform integrations (env var or vault presence check). Values are never returned.
+
+## WebSocket Tickets
+
+| Method | Path                | Min Role | Description                          |
+| ------ | ------------------- | -------- | ------------------------------------ |
+| `POST` | `/api/v1/ws/ticket` | VIEWER   | Issue a short-lived WebSocket ticket |
+
+Returns `{ ticket: string, expires_in: 30 }`. Tickets are single-use, Redis-backed, and expire after 30 seconds. Use `?ticket=<token>` on the WebSocket upgrade request instead of passing API keys in query parameters.
 
 ## Audit
 

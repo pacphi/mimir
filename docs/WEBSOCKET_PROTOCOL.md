@@ -224,6 +224,40 @@ These can appear on any channel:
 | `error` | `{ code: string, message: string }` |
 | `ack`   | `{ ok: true }`                      |
 
+### `llm_usage` — LLM Token Usage
+
+Direction: Agent → Console (every ~30s, batched)
+
+| Type              | Payload                |
+| ----------------- | ---------------------- |
+| `llm_usage:batch` | `LlmUsageBatchPayload` |
+
+```typescript
+interface LlmUsageRecord {
+  provider: string; // OTel gen_ai.provider.name
+  model: string; // gen_ai.response.model
+  operation?: string; // "chat" | "embeddings" | "completion"
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  costUsd: number; // Pre-computed by agent pricing table
+  captureTier?: string; // "proxy" | "ebpf" | "ollama"
+  traceId?: string; // OTel trace correlation
+  ts: number; // Unix timestamp (ms) of the LLM call
+}
+
+interface LlmUsageBatchPayload {
+  records: LlmUsageRecord[];
+}
+```
+
+Draupnir captures LLM API traffic via a local HTTP reverse proxy (Tier 1) and optionally eBPF SSL uprobes (Tier 2). Token usage is extracted from each provider's JSON response format. See [ADR-0011](adr/0011-llm-token-cost-tracking.md) for details.
+
+Field naming follows [OpenTelemetry GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/).
+
+---
+
 ## Agent Registration Flow
 
 1. Agent connects with `X-Api-Key` + `X-Instance-ID` headers

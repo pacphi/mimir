@@ -92,3 +92,55 @@ export interface CommandResultPayload {
   stderr: string;
   durationMs: number;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LLM Usage channel payloads
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface LlmUsageRecord {
+  /** OTel gen_ai.provider.name */
+  provider: string;
+  /** OTel gen_ai.response.model */
+  model: string;
+  /** OTel gen_ai.operation.name */
+  operation?: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  /** Pre-computed cost in USD (agent-side pricing table) */
+  costUsd: number;
+  /** How the usage was captured: "proxy" | "ebpf" | "ollama" */
+  captureTier?: string;
+  /** OTel trace ID for correlation */
+  traceId?: string;
+  /** Unix timestamp (ms) of the LLM call */
+  ts: number;
+}
+
+export interface LlmUsagePayload {
+  /** Batch of usage records for the reporting interval */
+  records: LlmUsageRecord[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FOCUS 1.3 Normalized Cost Record (FinOps Open Cost and Usage Specification)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type FocusServiceCategory = "Compute" | "Storage" | "Network" | "AI" | "Other";
+
+export interface NormalizedCostRecord {
+  billingPeriodStart: string;
+  billingPeriodEnd: string;
+  chargePeriodStart: string;
+  chargePeriodEnd: string;
+  serviceCategory: FocusServiceCategory;
+  provider: string;
+  resourceId: string;
+  resourceName?: string;
+  effectiveCost: number;
+  billedCost: number;
+  currency: string;
+  source: "estimated" | "actual" | "reconciled";
+  tags?: Record<string, string>;
+}

@@ -376,6 +376,29 @@ async function routeAgentMessage(conn: AgentConnection, raw: string): Promise<vo
       }
       break;
 
+    case CHANNEL.LLM_USAGE: {
+      // Ingest LLM usage batch from agent
+      const llmData = data as { records?: unknown[] };
+      if (llmData.records && llmData.records.length > 0) {
+        // Lazy import to avoid circular deps
+        const { ingestLlmUsageBatch } = await import("../services/costs/llm-usage.service.js");
+        ingestLlmUsageBatch(
+          conn.instanceId,
+          llmData.records as Parameters<typeof ingestLlmUsageBatch>[1],
+        ).catch((err: unknown) =>
+          logger.warn({ err, instanceId: conn.instanceId }, "Failed to ingest LLM usage batch"),
+        );
+        // Publish to Redis for real-time dashboard updates
+        await redis
+          .publish(
+            REDIS_CHANNELS.instanceEvents(conn.instanceId),
+            JSON.stringify({ ...envelope, instanceId: conn.instanceId }),
+          )
+          .catch((err: unknown) => logger.warn({ err }, "Failed to publish LLM usage event"));
+      }
+      break;
+    }
+
     default:
       logger.warn({ channel, type, instanceId: conn.instanceId }, "Unknown channel from agent");
   }

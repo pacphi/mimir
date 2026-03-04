@@ -177,6 +177,7 @@ model Instance {
   command_executions          CommandExecution[]
   deployments                 Deployment[]
   cost_entries                CostEntry[]
+  llm_usage_entries           LlmUsageEntry[]
   right_sizing_recommendation RightSizingRecommendation?
   vulnerabilities             Vulnerability[]
   bom_entries                 BomEntry[]
@@ -1066,8 +1067,10 @@ model CostEntry {
   compute_usd  Float    @default(0)
   storage_usd  Float    @default(0)
   network_usd  Float    @default(0)
+  llm_usd      Float    @default(0)
   total_usd    Float    @default(0)
   currency     String   @default("USD")
+  source       String   @default("estimated") // "estimated" | "actual" | "reconciled"
   metadata     Json?
   created_at   DateTime @default(now())
 
@@ -1118,4 +1121,33 @@ model RightSizingRecommendation {
   @@index([instance_id])
   @@index([savings_usd_mo])
   @@index([dismissed])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LLM Token Usage Tracking
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Per-request LLM API usage record captured by Draupnir agent or provider API reconciliation.
+model LlmUsageEntry {
+  id                 String   @id @default(cuid())
+  instance_id        String
+  timestamp          DateTime @default(now())
+  provider           String   // OTel gen_ai.provider.name: anthropic, openai, google, groq, mistral, xai, cohere, ollama
+  model              String   // gen_ai.response.model: claude-sonnet-4-20250514, gpt-4o, etc.
+  operation          String?  // gen_ai.operation.name: "chat" | "embeddings" | "completion"
+  input_tokens       Int      @default(0)
+  output_tokens      Int      @default(0)
+  cache_read_tokens  Int?
+  cache_write_tokens Int?
+  cost_usd           Float    @default(0)
+  source             String   @default("agent") // "agent" | "provider-api" | "reconciled"
+  capture_tier       String?  // "proxy" | "ebpf" | "ollama" — how Draupnir captured it
+  trace_id           String?  // OTel trace correlation
+  metadata           Json?
+
+  instance Instance @relation(fields: [instance_id], references: [id], onDelete: Cascade)
+
+  @@index([instance_id, timestamp])
+  @@index([timestamp])
+  @@index([provider, model])
 }

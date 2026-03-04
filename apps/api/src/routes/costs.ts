@@ -43,6 +43,12 @@ import {
   analyzeAndGenerateRecommendations,
 } from "../services/costs/rightsizing.service.js";
 import { PROVIDER_PRICING } from "../services/costs/pricing.js";
+import {
+  getLlmCostSummary,
+  getLlmCostTrends,
+  getLlmCostByInstance,
+} from "../services/costs/llm-usage.service.js";
+import { getLlmPricingTable } from "../services/costs/llm-pricing.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Schemas
@@ -392,4 +398,55 @@ costsRouter.get("/alerts", rateLimitDefault, async (c) => {
     logger.error({ err }, "Failed to get cost alerts");
     return c.json({ error: "Internal Server Error" }, 500);
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LLM cost endpoints
+// ─────────────────────────────────────────────────────────────────────────────
+
+costsRouter.get("/llm/summary", rateLimitDefault, async (c) => {
+  try {
+    const params = DateRangeSchema.parse(Object.fromEntries(new URL(c.req.url).searchParams));
+    const now = new Date();
+    const from = params.from ? new Date(params.from) : new Date(now.getTime() - 30 * 86400_000);
+    const to = params.to ? new Date(params.to) : now;
+    const summary = await getLlmCostSummary(from, to, params.instanceId, params.provider);
+    return c.json(summary);
+  } catch (err) {
+    logger.error({ err }, "Failed to get LLM cost summary");
+    return c.json({ error: "Internal Server Error" }, 500);
+  }
+});
+
+costsRouter.get("/llm/trends", rateLimitDefault, async (c) => {
+  try {
+    const params = DateRangeSchema.parse(Object.fromEntries(new URL(c.req.url).searchParams));
+    const now = new Date();
+    const from = params.from ? new Date(params.from) : new Date(now.getTime() - 30 * 86400_000);
+    const to = params.to ? new Date(params.to) : now;
+    const trends = await getLlmCostTrends(from, to, params.instanceId, params.provider);
+    return c.json({ points: trends });
+  } catch (err) {
+    logger.error({ err }, "Failed to get LLM cost trends");
+    return c.json({ error: "Internal Server Error" }, 500);
+  }
+});
+
+costsRouter.get("/llm/instances/:id", rateLimitDefault, async (c) => {
+  try {
+    const instanceId = c.req.param("id");
+    const params = DateRangeSchema.parse(Object.fromEntries(new URL(c.req.url).searchParams));
+    const now = new Date();
+    const from = params.from ? new Date(params.from) : new Date(now.getTime() - 30 * 86400_000);
+    const to = params.to ? new Date(params.to) : now;
+    const result = await getLlmCostByInstance(instanceId, from, to);
+    return c.json(result);
+  } catch (err) {
+    logger.error({ err }, "Failed to get LLM cost by instance");
+    return c.json({ error: "Internal Server Error" }, 500);
+  }
+});
+
+costsRouter.get("/llm/pricing", rateLimitDefault, (c) => {
+  return c.json({ models: getLlmPricingTable() });
 });

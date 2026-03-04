@@ -20,8 +20,10 @@ export interface CostEntry {
   computeUsd: number;
   storageUsd: number;
   networkUsd: number;
+  llmUsd: number;
   totalUsd: number;
   currency: string;
+  source?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -34,6 +36,7 @@ export interface CostTrendPoint {
   computeUsd: number;
   storageUsd: number;
   networkUsd: number;
+  llmUsd: number;
 }
 
 export interface ProviderCostPoint {
@@ -53,6 +56,7 @@ export interface CostSummary {
   computeUsd: number;
   storageUsd: number;
   networkUsd: number;
+  llmUsd?: number;
   periodStart: string;
   periodEnd: string;
   instanceCount: number;

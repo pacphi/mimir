@@ -10,6 +10,7 @@ export interface CostSummary {
   computeUsd: number;
   storageUsd: number;
   networkUsd: number;
+  llmUsd: number;
   byProvider: Record<string, number>;
   byInstance: Array<{ instanceId: string; instanceName: string; totalUsd: number }>;
   periodStart: string;
@@ -22,6 +23,7 @@ export interface CostTrendPoint {
   computeUsd: number;
   storageUsd: number;
   networkUsd: number;
+  llmUsd: number;
 }
 
 export interface InstanceCostBreakdown {
@@ -90,6 +92,7 @@ export async function getCostSummary(
   let computeUsd = 0;
   let storageUsd = 0;
   let networkUsd = 0;
+  let llmUsd = 0;
   const byProvider: Record<string, number> = {};
   const byInstanceMap: Map<string, { instanceName: string; totalUsd: number }> = new Map();
 
@@ -98,6 +101,7 @@ export async function getCostSummary(
     computeUsd += e.compute_usd;
     storageUsd += e.storage_usd;
     networkUsd += e.network_usd;
+    llmUsd += e.llm_usd;
 
     byProvider[e.provider] = (byProvider[e.provider] ?? 0) + e.total_usd;
 
@@ -121,6 +125,7 @@ export async function getCostSummary(
     computeUsd: Math.round(computeUsd * 100) / 100,
     storageUsd: Math.round(storageUsd * 100) / 100,
     networkUsd: Math.round(networkUsd * 100) / 100,
+    llmUsd: Math.round(llmUsd * 100) / 100,
     byProvider: Object.fromEntries(
       Object.entries(byProvider).map(([k, v]) => [k, Math.round(v * 100) / 100]),
     ),
@@ -149,17 +154,20 @@ export async function getCostTrends(
   const entries = await db.costEntry.findMany({ where, orderBy: { period_start: "asc" } });
 
   // Bucket by day
-  const buckets: Map<string, { total: number; compute: number; storage: number; network: number }> =
-    new Map();
+  const buckets: Map<
+    string,
+    { total: number; compute: number; storage: number; network: number; llm: number }
+  > = new Map();
 
   for (const e of entries) {
     const day = e.period_start.toISOString().slice(0, 10);
-    const prev = buckets.get(day) ?? { total: 0, compute: 0, storage: 0, network: 0 };
+    const prev = buckets.get(day) ?? { total: 0, compute: 0, storage: 0, network: 0, llm: 0 };
     buckets.set(day, {
       total: prev.total + e.total_usd,
       compute: prev.compute + e.compute_usd,
       storage: prev.storage + e.storage_usd,
       network: prev.network + e.network_usd,
+      llm: prev.llm + e.llm_usd,
     });
   }
 
@@ -169,6 +177,7 @@ export async function getCostTrends(
     computeUsd: Math.round(v.compute * 100) / 100,
     storageUsd: Math.round(v.storage * 100) / 100,
     networkUsd: Math.round(v.network * 100) / 100,
+    llmUsd: Math.round(v.llm * 100) / 100,
   }));
 }
 
@@ -236,9 +245,12 @@ export async function recordCostEntry(params: {
   computeUsd: number;
   storageUsd: number;
   networkUsd: number;
+  llmUsd?: number;
+  source?: string;
   metadata?: Record<string, unknown>;
 }) {
-  const total = params.computeUsd + params.storageUsd + params.networkUsd;
+  const llm = params.llmUsd ?? 0;
+  const total = params.computeUsd + params.storageUsd + params.networkUsd + llm;
   return db.costEntry.create({
     data: {
       instance_id: params.instanceId,
@@ -248,7 +260,9 @@ export async function recordCostEntry(params: {
       compute_usd: params.computeUsd,
       storage_usd: params.storageUsd,
       network_usd: params.networkUsd,
+      llm_usd: llm,
       total_usd: Math.round(total * 100) / 100,
+      source: params.source ?? "estimated",
       metadata: (params.metadata as Prisma.InputJsonValue) ?? undefined,
     },
   });

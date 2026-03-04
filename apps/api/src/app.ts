@@ -26,6 +26,7 @@ import { adminTeamsRouter } from "./routes/admin/teams.js";
 import { auditRouter } from "./routes/audit.js";
 import { extensionsRouter } from "./routes/extensions.js";
 import { costsRouter } from "./routes/costs.js";
+import { otelRouter } from "./routes/otel.js";
 import { securityRouter } from "./routes/security.js";
 import { driftRouter } from "./routes/drift.js";
 import { secretsRouter } from "./routes/secrets.js";
@@ -106,6 +107,7 @@ export function createApp(): Hono {
   app.route("/api/v1/version", versionRouter);
   app.route("/api/v1/integrations", integrationsRouter);
   app.route("/api/v1/ws", wsTicketRouter);
+  app.route("/api/v1/otel", otelRouter);
 
   // 404 handler
   app.notFound((c) => {

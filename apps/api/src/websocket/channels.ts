@@ -22,6 +22,7 @@ export const CHANNEL = {
   TERMINAL: "terminal",
   EVENTS: "events",
   COMMANDS: "commands",
+  LLM_USAGE: "llm_usage",
 } as const;
 
 export type Channel = (typeof CHANNEL)[keyof typeof CHANNEL];
@@ -56,6 +57,9 @@ export const MESSAGE_TYPE = {
   // Commands channel
   COMMAND_EXEC: "command:exec",
   COMMAND_RESULT: "command:result",
+
+  // LLM Usage channel
+  LLM_USAGE_BATCH: "llm_usage:batch",
 
   // System / connection-level
   ERROR: "error",
@@ -213,6 +217,28 @@ export interface CommandResultPayload {
   stdout: string;
   stderr: string;
   durationMs: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Payload types — LLM usage channel
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface LlmUsageRecord {
+  provider: string;
+  model: string;
+  operation?: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  costUsd: number;
+  captureTier?: string;
+  traceId?: string;
+  ts: number;
+}
+
+export interface LlmUsageBatchPayload {
+  records: LlmUsageRecord[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

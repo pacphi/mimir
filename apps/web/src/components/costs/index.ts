@@ -5,3 +5,4 @@ export { BudgetManager } from "./BudgetManager";
 export { RightSizingRecommendations } from "./RightSizingRecommendations";
 export { IdleInstances } from "./IdleInstances";
 export { CostAlerts } from "./CostAlerts";
+export { LlmCostDashboard } from "./LlmCostDashboard";

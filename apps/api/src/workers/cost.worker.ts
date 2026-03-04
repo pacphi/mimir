@@ -3,8 +3,10 @@
  *
  * Runs daily (every 24 hours) to:
  *   1. Calculate and record daily cost entries for all active instances
- *   2. Run right-sizing analysis and update recommendations
- *   3. Evaluate budget thresholds and trigger alerts
+ *   2. Aggregate daily LLM token costs into CostEntry.llm_usd
+ *   3. Reconcile estimated costs with actual cloud billing data
+ *   4. Run right-sizing analysis and update recommendations
+ *   5. Evaluate budget thresholds and trigger alerts
  *
  * Intentionally uses the same setInterval pattern as the alert evaluation
  * and metric aggregation workers — no BullMQ dependency required.
@@ -16,6 +18,8 @@ import { recordCostEntry } from "../services/costs/cost.service.js";
 import { analyzeAndGenerateRecommendations } from "../services/costs/rightsizing.service.js";
 import { evaluateBudgetAlerts } from "../services/costs/budget.service.js";
 import { estimateMonthlyCost, getProviderPricing } from "../services/costs/pricing.js";
+import { aggregateDailyLlmCosts } from "../services/costs/llm-usage.service.js";
+import { fetchAllCloudCosts } from "../services/costs/cloud-cost-collector.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Worker state
@@ -67,16 +71,31 @@ async function runCostCycle(): Promise<void> {
   try {
     logger.info("Cost worker cycle starting");
 
-    const [costResult, rsResult, budgetAlerts] = await Promise.allSettled([
-      recordDailyCosts(),
-      analyzeAndGenerateRecommendations(),
-      evaluateBudgetAlerts(),
-    ]);
+    const [costResult, llmResult, reconcileResult, rsResult, budgetAlerts] =
+      await Promise.allSettled([
+        recordDailyCosts(),
+        aggregateLlmCostsIntoCostEntries(),
+        reconcileWithCloudBilling(),
+        analyzeAndGenerateRecommendations(),
+        evaluateBudgetAlerts(),
+      ]);
 
     if (costResult.status === "fulfilled") {
       logger.info(costResult.value, "Daily cost entries recorded");
     } else {
       logger.error({ err: costResult.reason }, "Failed to record daily costs");
+    }
+
+    if (llmResult.status === "fulfilled") {
+      logger.info(llmResult.value, "LLM costs aggregated into cost entries");
+    } else {
+      logger.error({ err: llmResult.reason }, "Failed to aggregate LLM costs");
+    }
+
+    if (reconcileResult.status === "fulfilled") {
+      logger.info(reconcileResult.value, "Cloud billing reconciliation complete");
+    } else {
+      logger.error({ err: reconcileResult.reason }, "Failed to reconcile cloud billing");
     }
 
     if (rsResult.status === "fulfilled") {
@@ -207,6 +226,130 @@ async function recordDailyCosts(): Promise<{ recorded: number; skipped: number; 
   }
 
   return { recorded, skipped, failed };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LLM cost aggregation — merge daily LLM costs into CostEntry.llm_usd
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function aggregateLlmCostsIntoCostEntries(): Promise<{ updated: number }> {
+  const periodStart = startOfDay(new Date());
+  const periodEnd = endOfDay(new Date());
+
+  const llmCosts = await aggregateDailyLlmCosts(periodStart, periodEnd);
+  if (llmCosts.size === 0) return { updated: 0 };
+
+  let updated = 0;
+
+  for (const [instanceId, llmUsd] of llmCosts) {
+    try {
+      // Find today's cost entry for this instance
+      const entry = await db.costEntry.findFirst({
+        where: { instance_id: instanceId, period_start: { gte: periodStart } },
+        select: {
+          id: true,
+          total_usd: true,
+          compute_usd: true,
+          storage_usd: true,
+          network_usd: true,
+        },
+      });
+
+      if (entry) {
+        // Update existing entry with LLM cost
+        const newTotal = round2(entry.compute_usd + entry.storage_usd + entry.network_usd + llmUsd);
+        await db.costEntry.update({
+          where: { id: entry.id },
+          data: { llm_usd: round2(llmUsd), total_usd: newTotal },
+        });
+        updated++;
+      }
+      // If no cost entry exists yet (instance may not have infra pricing),
+      // we still don't create one — LLM-only cost entries could be added later
+    } catch (err) {
+      logger.warn({ err, instanceId }, "Failed to update LLM cost for instance");
+    }
+  }
+
+  return { updated };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cloud billing reconciliation
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Fetch actual billing data from cloud providers and reconcile with estimates.
+ * Updates CostEntry metadata with source and variance information.
+ */
+async function reconcileWithCloudBilling(): Promise<{ reconciled: number; providers: string[] }> {
+  const periodStart = startOfDay(new Date());
+  // Look back 2 days to account for billing data delays
+  const lookbackStart = new Date(periodStart);
+  lookbackStart.setDate(lookbackStart.getDate() - 2);
+  const periodEnd = endOfDay(new Date());
+
+  let reconciled = 0;
+  const providers: string[] = [];
+
+  try {
+    const cloudCosts = await fetchAllCloudCosts(lookbackStart, periodEnd);
+
+    for (const result of cloudCosts) {
+      providers.push(result.provider);
+
+      // Sum actual costs by resource for this provider
+      const totalActual = result.records.reduce((sum, r) => sum + r.effectiveCost, 0);
+
+      // Find estimated entries for this provider in the lookback window
+      const estimatedEntries = await db.costEntry.findMany({
+        where: {
+          provider: result.provider,
+          period_start: { gte: lookbackStart },
+          period_end: { lte: periodEnd },
+          source: "estimated",
+        },
+      });
+
+      if (estimatedEntries.length === 0) continue;
+
+      const totalEstimated = estimatedEntries.reduce((sum, e) => e.total_usd + sum, 0);
+      const variancePct =
+        totalEstimated > 0 ? round2(((totalActual - totalEstimated) / totalEstimated) * 100) : 0;
+
+      // Update entries with reconciliation metadata
+      for (const entry of estimatedEntries) {
+        const existingMeta = (entry.metadata as Record<string, unknown>) ?? {};
+        await db.costEntry.update({
+          where: { id: entry.id },
+          data: {
+            source: "reconciled",
+            metadata: {
+              ...existingMeta,
+              reconciled_at: new Date().toISOString(),
+              actual_total_usd: round2(totalActual),
+              estimated_total_usd: round2(totalEstimated),
+              variance_pct: variancePct,
+              cloud_billing_source: result.provider,
+            },
+          },
+        });
+        reconciled++;
+      }
+
+      // Log variance warning if > 20%
+      if (Math.abs(variancePct) > 20) {
+        logger.warn(
+          { provider: result.provider, variancePct, totalActual, totalEstimated },
+          "Cost variance exceeds 20% threshold",
+        );
+      }
+    }
+  } catch (err) {
+    logger.warn({ err }, "Cloud billing reconciliation failed");
+  }
+
+  return { reconciled, providers };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

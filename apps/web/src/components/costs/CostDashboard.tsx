@@ -6,6 +6,7 @@ import { BudgetManager } from "./BudgetManager";
 import { RightSizingRecommendations } from "./RightSizingRecommendations";
 import { IdleInstances } from "./IdleInstances";
 import { CostAlerts } from "./CostAlerts";
+import { LlmCostDashboard } from "./LlmCostDashboard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { DollarSign, TrendingUp, TrendingDown, Minus } from "lucide-react";
@@ -111,7 +112,7 @@ export function CostDashboard() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
         <SummaryCard
           title="Total Spend"
           value={summary ? formatUsd(summary.totalUsd) : "—"}
@@ -144,6 +145,16 @@ export function CostDashboard() {
           sub={
             summary
               ? `${summary.instanceCount} instance${summary.instanceCount !== 1 ? "s" : ""}`
+              : undefined
+          }
+          loading={isLoading}
+        />
+        <SummaryCard
+          title="LLM / AI"
+          value={summary ? formatUsd(summary.llmUsd ?? 0) : "—"}
+          sub={
+            summary && summary.totalUsd > 0
+              ? `${(((summary.llmUsd ?? 0) / summary.totalUsd) * 100).toFixed(0)}% of total`
               : undefined
           }
           loading={isLoading}
@@ -188,6 +199,9 @@ export function CostDashboard() {
           </CardContent>
         </Card>
       )}
+
+      {/* LLM / AI cost breakdown */}
+      <LlmCostDashboard range={range} />
 
       {/* Optimization recommendations */}
       <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">

@@ -19,6 +19,53 @@ import { logger } from "./logger.js";
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * Explicit allowlist of environment variables passed to CLI subprocesses.
+ * Server-internal secrets (DATABASE_URL, JWT_SECRET, etc.) are excluded.
+ */
+const SUBPROCESS_ENV_ALLOWLIST = [
+  "PATH",
+  "HOME",
+  "USER",
+  "SHELL",
+  "LANG",
+  "TERM",
+  "TMPDIR",
+  "KUBECONFIG",
+  "DOCKER_HOST",
+  "DOCKER_CONFIG",
+  "SSH_AUTH_SOCK",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "SINDRI_BIN_PATH",
+  "SINDRI_CLI_TIMEOUT_MS",
+  "NODE_ENV",
+] as const;
+
+/**
+ * B5: Build a subprocess environment from an explicit allowlist + user secrets.
+ * Server-internal secrets (DATABASE_URL, JWT_SECRET, SESSION_SECRET, etc.)
+ * never reach the subprocess.
+ */
+export function buildSubprocessEnv(userSecrets?: Record<string, string>): Record<string, string> {
+  const env: Record<string, string> = {};
+
+  for (const key of SUBPROCESS_ENV_ALLOWLIST) {
+    const value = process.env[key];
+    if (value !== undefined) {
+      env[key] = value;
+    }
+  }
+
+  // Merge user-provided secrets (these override allowlisted vars if colliding,
+  // which is fine — user secrets take precedence for deployment commands)
+  if (userSecrets) {
+    Object.assign(env, userSecrets);
+  }
+
+  return env;
+}
+
 export class CliNotFoundError extends Error {
   readonly code = "CLI_NOT_FOUND";
   constructor() {
@@ -93,7 +140,7 @@ export async function runCliCapture(
     const { stdout, stderr } = await execFileAsync(bin, args, {
       timeout: effectiveTimeout,
       maxBuffer: 10 * 1024 * 1024,
-      ...(env ? { env: { ...process.env, ...env } } : {}),
+      env: buildSubprocessEnv(env),
     });
     return { stdout, stderr };
   } catch (err: unknown) {
@@ -132,7 +179,7 @@ export async function runCliJson<T>(args: string[], env?: Record<string, string>
     const { stdout } = await execFileAsync(bin, [...args, "--json"], {
       timeout: timeoutMs,
       maxBuffer: 10 * 1024 * 1024, // 10 MB
-      ...(env ? { env: { ...process.env, ...env } } : {}),
+      env: buildSubprocessEnv(env),
     });
     return JSON.parse(stdout) as T;
   } catch (err: unknown) {

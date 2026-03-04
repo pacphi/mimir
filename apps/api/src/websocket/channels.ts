@@ -144,6 +144,8 @@ export interface TerminalCreatePayload {
   cols: number;
   rows: number;
   shell?: string; // defaults to /bin/bash
+  /** Server-generated session token for defense-in-depth validation (A5) */
+  sessionToken?: string;
 }
 
 export interface TerminalDataPayload {

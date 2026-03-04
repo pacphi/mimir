@@ -27,6 +27,7 @@ import {
   type MetricsPayload,
   type HeartbeatPayload,
   type InstanceEventPayload,
+  type TerminalClosePayload,
 } from "./channels.js";
 import { authenticateUpgrade, type AuthenticatedPrincipal, AuthError } from "./auth.js";
 import { WsPubSub, InProcessPubSub, type PubSub } from "./redis.js";
@@ -65,7 +66,16 @@ export interface WebSocketServerConfig {
     saveMetrics?: (instanceId: string, payload: MetricsPayload) => Promise<void>;
     saveHeartbeat?: (instanceId: string, payload: HeartbeatPayload) => Promise<void>;
     saveEvent?: (instanceId: string, payload: InstanceEventPayload) => Promise<void>;
+    createTerminalSession?: (
+      sessionId: string,
+      instanceId: string,
+      userId: string,
+    ) => Promise<void>;
+    closeTerminalSession?: (sessionId: string, reason?: string) => Promise<void>;
   };
+
+  /** Terminal idle timeout in ms (default: 3 600 000 = 1 hour) */
+  terminalIdleTimeoutMs?: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -83,6 +93,8 @@ export interface ConnectedClient {
   subscriptions: Set<Channel>;
   /** Cleanup callbacks from pub/sub subscriptions — called on disconnect */
   unsubscribers: Array<() => Promise<void>>;
+  /** Last activity timestamp per terminal sessionId (for idle timeout) */
+  terminalLastActivity: Map<string, Date>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -173,6 +185,7 @@ export class SindriWebSocketServer {
       lastPong: new Date(),
       subscriptions: new Set(),
       unsubscribers: [],
+      terminalLastActivity: new Map(),
     };
 
     this.clients.set(clientId, client);
@@ -232,6 +245,9 @@ export class SindriWebSocketServer {
       persistMetrics: this.config.persistence?.saveMetrics,
       persistHeartbeat: this.config.persistence?.saveHeartbeat,
       persistEvent: this.config.persistence?.saveEvent,
+      createTerminalSession: this.config.persistence?.createTerminalSession,
+      closeTerminalSession: this.config.persistence?.closeTerminalSession,
+      terminalLastActivity: client.terminalLastActivity,
     };
 
     try {
@@ -294,9 +310,11 @@ export class SindriWebSocketServer {
 
   private startKeepAlive(): void {
     const intervalMs = this.config.keepAliveMs ?? 30_000;
+    const idleTimeoutMs = this.config.terminalIdleTimeoutMs ?? 3_600_000;
 
     this.keepAliveTimer = setInterval(() => {
       const threshold = new Date(Date.now() - intervalMs * 2);
+      const idleThreshold = new Date(Date.now() - idleTimeoutMs);
 
       for (const [id, client] of this.clients) {
         if (client.ws.readyState !== WebSocket.OPEN) {
@@ -309,6 +327,29 @@ export class SindriWebSocketServer {
           client.ws.terminate();
           this.clients.delete(id);
           continue;
+        }
+
+        // A3: Check for idle terminal sessions
+        for (const [sessionId, lastActivity] of client.terminalLastActivity) {
+          if (lastActivity < idleThreshold) {
+            logger.info({ clientId: id, sessionId }, "[ws:server] Closing idle terminal session");
+
+            const closeEnvelope = makeEnvelope<TerminalClosePayload>(
+              CHANNEL.TERMINAL,
+              MESSAGE_TYPE.TERMINAL_CLOSE,
+              { sessionId, reason: "idle_timeout" },
+              { instanceId: client.principal.instanceId },
+            );
+            if (client.ws.readyState === WebSocket.OPEN) {
+              client.ws.send(JSON.stringify(closeEnvelope));
+            }
+
+            this.config.persistence
+              ?.closeTerminalSession?.(sessionId, "idle_timeout")
+              .catch(() => undefined);
+
+            client.terminalLastActivity.delete(sessionId);
+          }
         }
 
         client.ws.ping();

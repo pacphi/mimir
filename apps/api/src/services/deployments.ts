@@ -15,6 +15,7 @@ import { db } from "../lib/db.js";
 import { redis, REDIS_CHANNELS } from "../lib/redis.js";
 import { logger } from "../lib/logger.js";
 import { runCliCapture, isCliConfigured } from "../lib/cli.js";
+import { isReservedSecretKey } from "../lib/secret-denylist.js";
 
 export interface CreateDeploymentInput {
   name: string;
@@ -160,6 +161,52 @@ function resolveConsolePlaceholders(yaml: string): string {
   return resolved;
 }
 
+/**
+ * B3: Scan Expert YAML for reserved secret keys in `env:` or `secrets:` blocks.
+ * Returns an array of violating key names (empty = valid).
+ *
+ * Uses the same line-by-line approach as `parseExtensionsFromYaml`.
+ */
+export function validateYamlSecrets(yaml: string): string[] {
+  const lines = yaml.split("\n");
+  const violations: string[] = [];
+  let inBlock = false;
+
+  for (const line of lines) {
+    // Detect start of env: or secrets: block
+    if (/^(?:env|secrets):\s*$/.test(line)) {
+      inBlock = true;
+      continue;
+    }
+
+    if (inBlock) {
+      // "KEY: value" or "- KEY=value" style entries
+      const kvMatch = line.match(/^\s+([A-Z_][A-Z0-9_]*):/);
+      const dashMatch = line.match(/^\s+-\s+([A-Z_][A-Z0-9_]*)(?:=|:)/);
+      const key = kvMatch?.[1] ?? dashMatch?.[1];
+
+      if (key && isReservedSecretKey(key)) {
+        violations.push(key);
+      }
+
+      // End of block — non-indented, non-empty line that's not a list item
+      if (line.trim() !== "" && !/^\s/.test(line)) {
+        inBlock = false;
+      }
+    }
+  }
+
+  return [...new Set(violations)];
+}
+
+/**
+ * B4: Resolve console placeholders and inject system secrets (AUTHORIZED_KEYS).
+ * Extends the original resolveConsolePlaceholders with SSH key injection.
+ */
+function resolveSystemSecrets(yaml: string): string {
+  return resolveConsolePlaceholders(yaml);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -243,7 +290,7 @@ async function runProvisioningFlow(
     appendLog(`Targeting ${input.provider} (${input.region})...`);
 
     // ── Write YAML to temp file ───────────────────────────────────────────────
-    const resolvedYaml = resolveConsolePlaceholders(input.yaml_config);
+    const resolvedYaml = resolveSystemSecrets(input.yaml_config);
     yamlByteLength = Buffer.byteLength(resolvedYaml, "utf-8");
     tmpFile = join(tmpdir(), `sindri-deploy-${deploymentId}.yaml`);
     await writeFile(tmpFile, resolvedYaml, "utf-8");

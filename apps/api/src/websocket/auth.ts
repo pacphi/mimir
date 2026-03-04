@@ -15,6 +15,8 @@ export interface AuthenticatedPrincipal {
   apiKeyId?: string;
   sessionId?: string;
   authMethod: "api_key" | "session";
+  /** True when the connection is from a Sindri agent (validated X-Instance-ID). */
+  isAgent: boolean;
 }
 
 export class AuthError extends Error {
@@ -70,12 +72,15 @@ async function tryApiKeyAuth(req: IncomingMessage): Promise<AuthenticatedPrincip
   if (!record) return null;
   if (record.expires_at !== null && record.expires_at < new Date()) return null;
 
+  const instanceId = extractInstanceId(req);
+
   return {
     userId: record.user_id,
     role: record.user.role,
-    instanceId: extractInstanceId(req),
+    instanceId,
     apiKeyId: record.id,
     authMethod: "api_key",
+    isAgent: false, // set after instance validation in authenticateUpgrade
   };
 }
 
@@ -101,6 +106,7 @@ async function trySessionAuth(req: IncomingMessage): Promise<AuthenticatedPrinci
       instanceId: extractInstanceId(req),
       sessionId: session.session.id,
       authMethod: "session",
+      isAgent: false,
     };
   } catch {
     return null;
@@ -130,24 +136,47 @@ async function tryTicketAuth(req: IncomingMessage): Promise<AuthenticatedPrincip
     apiKeyId: payload.apiKeyId,
     sessionId: payload.sessionId,
     authMethod: payload.authMethod,
+    isAgent: false,
   };
 }
 
 export async function authenticateUpgrade(req: IncomingMessage): Promise<AuthenticatedPrincipal> {
   // 1. Ticket-based auth (preferred — no secrets in URLs/logs)
   const ticketAuth = await tryTicketAuth(req);
-  if (ticketAuth) return ticketAuth;
+  if (ticketAuth) return validateAndFinalise(ticketAuth);
 
   // 2. API key via header (X-Api-Key)
   const apiKeyAuth = await tryApiKeyAuth(req);
-  if (apiKeyAuth) return apiKeyAuth;
+  if (apiKeyAuth) return validateAndFinalise(apiKeyAuth);
 
   // 3. Session cookie
   const sessionAuth = await trySessionAuth(req);
-  if (sessionAuth) return sessionAuth;
+  if (sessionAuth) return validateAndFinalise(sessionAuth);
 
   throw new AuthError(
     "Authentication required. Use a WebSocket ticket (POST /api/v1/ws/ticket), API key header, or sign in via the web interface.",
     "MISSING_AUTH",
   );
+}
+
+/**
+ * A4: If an instanceId is present (X-Instance-ID header), validate it exists
+ * in the Instance table and mark the principal as an agent connection.
+ */
+async function validateAndFinalise(
+  principal: AuthenticatedPrincipal,
+): Promise<AuthenticatedPrincipal> {
+  if (!principal.instanceId) return principal;
+
+  const instance = await db.instance.findUnique({
+    where: { id: principal.instanceId },
+    select: { id: true },
+  });
+
+  if (!instance) {
+    throw new AuthError(`Unknown instance ID: ${principal.instanceId}`, "UNKNOWN_INSTANCE");
+  }
+
+  principal.isAgent = true;
+  return principal;
 }

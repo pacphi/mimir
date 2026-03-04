@@ -27,6 +27,9 @@ const envSchema = z.object({
   // Server
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   PORT: z.coerce.number().default(3001),
+
+  // Terminal session idle timeout (ms) — default 1 hour
+  TERMINAL_IDLE_TIMEOUT_MS: z.coerce.number().positive().default(3_600_000),
 });
 
 const PLACEHOLDER_VALUES = new Set([

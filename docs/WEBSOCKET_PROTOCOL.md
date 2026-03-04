@@ -22,6 +22,8 @@ WebSocket connections authenticate via:
 | Console (browser) | `X-Api-Key` or `?apiKey`      | Subscribe to instance data       |
 | Agent (Draupnir)  | `X-Api-Key` + `X-Instance-ID` | Report metrics, heartbeats, logs |
 
+> **Recommended:** Use the ticket-based auth flow (`POST /api/v1/ws/ticket`) instead of passing API keys in query parameters. Tickets are short-lived (30s), single-use, and Redis-backed — eliminating the risk of API keys appearing in access logs.
+
 ## Envelope Format
 
 All WebSocket messages use a standard envelope:
@@ -127,6 +129,7 @@ interface TerminalCreatePayload {
   cols: number;
   rows: number;
   shell?: string; // defaults to "/bin/bash"
+  sessionToken?: string; // server-generated, included in pub/sub payload
 }
 
 interface TerminalCreatedPayload {
@@ -156,13 +159,19 @@ interface TerminalErrorPayload {
 }
 ```
 
+#### Terminal Channel Authorization
+
+Terminal sessions require a minimum role of **DEVELOPER**. VIEWER connections receive a `FORBIDDEN` error on `terminal:create`. All session open/close events are recorded in the audit log. Idle sessions are automatically closed after `TERMINAL_IDLE_TIMEOUT_MS` (default: 1 hour).
+
 **Session lifecycle:**
 
-1. Console sends `terminal:create` with `sessionId`, `cols`, `rows`
-2. Agent spawns PTY, responds with `terminal:created` (includes `pid`)
-3. Bidirectional `terminal:data` streams base64-encoded I/O
-4. Console sends `terminal:resize` on window resize
-5. Either side sends `terminal:close` to end session
+1. Console sends `terminal:create` with `sessionId`, `cols`, `rows` (requires DEVELOPER role)
+2. Server generates a `sessionToken`, stores in Redis (5-min TTL), and creates a `TerminalSession` record + `CONNECT` audit log
+3. Agent spawns PTY, responds with `terminal:created` (includes `pid`)
+4. Bidirectional `terminal:data` streams base64-encoded I/O (refreshes session token TTL)
+5. Console sends `terminal:resize` on window resize
+6. Either side sends `terminal:close` to end session (creates `DISCONNECT` audit log)
+7. Server closes idle sessions automatically after the configured timeout
 
 ### `events` — Instance Lifecycle Events
 
@@ -219,9 +228,12 @@ These can appear on any channel:
 
 1. Agent connects with `X-Api-Key` + `X-Instance-ID` headers
 2. Server validates API key (SHA-256 hash lookup)
-3. Server resolves `instanceId` from header
-4. Server sends `ack` on success
-5. Agent begins sending `heartbeat:ping` and `metrics:update`
+3. Server validates `X-Instance-ID` exists in the `Instance` database table (rejects unknown IDs)
+4. Server sets `isAgent: true` on the authenticated principal
+5. Server sends `ack` on success
+6. Agent begins sending `heartbeat:ping` and `metrics:update`
+
+> **Note:** Only agent connections (`isAgent: true`) may send `metrics:update`, `heartbeat:ping`, and `event:instance` messages. Browser clients attempting these will receive a `FORBIDDEN` error.
 
 ## Browser Subscription Flow
 

@@ -6,6 +6,7 @@
  * other subscribers via the pub/sub broker.
  */
 
+import { randomBytes } from "crypto";
 import type { WebSocket } from "ws";
 import {
   CHANNEL,
@@ -27,6 +28,7 @@ import {
 } from "./channels.js";
 import type { PubSub } from "./redis.js";
 import type { AuthenticatedPrincipal } from "./auth.js";
+import { redis } from "../lib/redis.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Context passed to every handler
@@ -40,6 +42,11 @@ export interface HandlerContext {
   persistMetrics?: (instanceId: string, payload: MetricsPayload) => Promise<void>;
   persistHeartbeat?: (instanceId: string, payload: HeartbeatPayload) => Promise<void>;
   persistEvent?: (instanceId: string, payload: InstanceEventPayload) => Promise<void>;
+  /** Terminal session persistence callbacks */
+  createTerminalSession?: (sessionId: string, instanceId: string, userId: string) => Promise<void>;
+  closeTerminalSession?: (sessionId: string, reason?: string) => Promise<void>;
+  /** Track last activity per terminal session (for idle timeout) */
+  terminalLastActivity?: Map<string, Date>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -71,6 +78,24 @@ function requireInstanceId(ctx: HandlerContext, correlationId?: string): string 
   return instanceId;
 }
 
+/** Require the principal to be an authenticated agent (not a browser user). */
+function requireAgent(ctx: HandlerContext, correlationId?: string): boolean {
+  if (!ctx.principal.isAgent) {
+    sendError(ctx.ws, "FORBIDDEN", "Only agent connections may send this message", correlationId);
+    return false;
+  }
+  return true;
+}
+
+/** Require at least DEVELOPER role (blocks VIEWER). */
+function requireDeveloper(ctx: HandlerContext, correlationId?: string): boolean {
+  if (ctx.principal.role === "VIEWER") {
+    sendError(ctx.ws, "FORBIDDEN", "VIEWER role cannot access terminal sessions", correlationId);
+    return false;
+  }
+  return true;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Metrics handler
 // ─────────────────────────────────────────────────────────────────────────────
@@ -79,6 +104,7 @@ export async function handleMetrics(
   envelope: Envelope<MetricsPayload>,
   ctx: HandlerContext,
 ): Promise<void> {
+  if (!requireAgent(ctx, envelope.correlationId)) return;
   const instanceId = requireInstanceId(ctx, envelope.correlationId);
   if (!instanceId) return;
 
@@ -123,6 +149,7 @@ export async function handleHeartbeat(
   envelope: Envelope<HeartbeatPayload>,
   ctx: HandlerContext,
 ): Promise<void> {
+  if (!requireAgent(ctx, envelope.correlationId)) return;
   const instanceId = requireInstanceId(ctx, envelope.correlationId);
   if (!instanceId) return;
 
@@ -197,14 +224,29 @@ export async function handleTerminalCreate(
   envelope: Envelope<TerminalCreatePayload>,
   ctx: HandlerContext,
 ): Promise<void> {
+  // A1: RBAC — require at least DEVELOPER
+  if (!requireDeveloper(ctx, envelope.correlationId)) return;
+
   const instanceId = requireInstanceId(ctx, envelope.correlationId);
   if (!instanceId) return;
+
+  const { sessionId } = envelope.data;
+
+  // A5: Generate session token, store in Redis with 5-min TTL
+  const sessionToken = randomBytes(32).toString("hex");
+  await redis.set(`ws:terminal:${sessionId}:token`, sessionToken, "EX", 300);
+
+  // A2: Persist terminal session + audit log
+  await ctx.createTerminalSession?.(sessionId, instanceId, ctx.principal.userId);
+
+  // Track activity for idle timeout (A3)
+  ctx.terminalLastActivity?.set(sessionId, new Date());
 
   // Forward the create request to the instance agent via pub/sub
   const outbound = makeEnvelope<TerminalCreatePayload>(
     CHANNEL.TERMINAL,
     MESSAGE_TYPE.TERMINAL_CREATE,
-    envelope.data,
+    { ...envelope.data, sessionToken },
     {
       instanceId,
       correlationId: envelope.correlationId,
@@ -219,6 +261,15 @@ export async function handleTerminalData(
 ): Promise<void> {
   const instanceId = requireInstanceId(ctx, envelope.correlationId);
   if (!instanceId) return;
+
+  const { sessionId } = envelope.data;
+
+  // Track activity for idle timeout (A3)
+  ctx.terminalLastActivity?.set(sessionId, new Date());
+
+  // Refresh session token TTL on activity (A5)
+  const tokenKey = `ws:terminal:${sessionId}:token`;
+  await redis.expire(tokenKey, 300).catch(() => undefined);
 
   const outbound = makeEnvelope<TerminalDataPayload>(
     CHANNEL.TERMINAL,
@@ -258,6 +309,15 @@ export async function handleTerminalClose(
   const instanceId = requireInstanceId(ctx, envelope.correlationId);
   if (!instanceId) return;
 
+  const { sessionId, reason } = envelope.data;
+
+  // A2: Persist session close + audit log
+  await ctx.closeTerminalSession?.(sessionId, reason).catch(() => undefined);
+
+  // Clean up idle tracking and session token
+  ctx.terminalLastActivity?.delete(sessionId);
+  await redis.del(`ws:terminal:${sessionId}:token`).catch(() => undefined);
+
   const outbound = makeEnvelope<TerminalClosePayload>(
     CHANNEL.TERMINAL,
     MESSAGE_TYPE.TERMINAL_CLOSE,
@@ -278,6 +338,7 @@ export async function handleInstanceEvent(
   envelope: Envelope<InstanceEventPayload>,
   ctx: HandlerContext,
 ): Promise<void> {
+  if (!requireAgent(ctx, envelope.correlationId)) return;
   const instanceId = requireInstanceId(ctx, envelope.correlationId);
   if (!instanceId) return;
 

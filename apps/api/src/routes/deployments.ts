@@ -13,7 +13,10 @@ import {
   createDeployment,
   getDeploymentById,
   serializeDeployment,
+  validateYamlSecrets,
 } from "../services/deployments.js";
+import { isReservedSecretKey } from "../lib/secret-denylist.js";
+import { createAuditLog } from "../services/audit.js";
 import { logger } from "../lib/logger.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -33,7 +36,19 @@ const CreateDeploymentSchema = z.object({
   storage_gb: z.number().positive().default(20),
   yaml_config: z.string().max(65536),
   template_id: z.string().max(128).optional(),
-  secrets: z.record(z.string(), z.string()).optional(),
+  secrets: z
+    .record(z.string(), z.string())
+    .optional()
+    .superRefine((secrets, ctx) => {
+      if (!secrets) return;
+      const violations = Object.keys(secrets).filter(isReservedSecretKey);
+      if (violations.length > 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Reserved secret keys cannot be overridden: ${violations.join(", ")}`,
+        });
+      }
+    }),
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -54,6 +69,20 @@ deploymentsRoute.post("/", rateLimitStrict, async (c) => {
     return c.json({ error: "Bad Request", message: "Request body must be valid JSON" }, 400);
   }
 
+  // B6: Pre-validate secrets denylist so we can audit before Zod runs
+  const rawBody = body as Record<string, unknown>;
+  if (rawBody.secrets && typeof rawBody.secrets === "object") {
+    const secretKeys = Object.keys(rawBody.secrets as Record<string, unknown>);
+    const violations = secretKeys.filter(isReservedSecretKey);
+    if (violations.length > 0) {
+      await createAuditLog({
+        action: "CREATE",
+        resource: "deployment",
+        metadata: { event: "reserved_key_violation", keys: violations },
+      }).catch(() => undefined);
+    }
+  }
+
   const parseResult = CreateDeploymentSchema.safeParse(body);
   if (!parseResult.success) {
     return c.json(
@@ -61,6 +90,25 @@ deploymentsRoute.post("/", rateLimitStrict, async (c) => {
         error: "Validation Error",
         message: "Invalid request body",
         details: parseResult.error.flatten(),
+      },
+      422,
+    );
+  }
+
+  // B3: Validate Expert YAML for reserved secret keys
+  const yamlViolations = validateYamlSecrets(parseResult.data.yaml_config);
+  if (yamlViolations.length > 0) {
+    await createAuditLog({
+      action: "CREATE",
+      resource: "deployment",
+      metadata: { event: "reserved_key_violation_yaml", keys: yamlViolations },
+    }).catch(() => undefined);
+
+    return c.json(
+      {
+        error: "Validation Error",
+        message: `Expert YAML contains reserved secret keys: ${yamlViolations.join(", ")}`,
+        details: { reservedKeys: yamlViolations },
       },
       422,
     );

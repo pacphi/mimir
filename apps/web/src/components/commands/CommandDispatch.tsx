@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Terminal, FileCode, List, Play, Loader2, Settings2 } from "lucide-react";
+import { Terminal, FileCode, List, SquareTerminal, Play, Loader2, Settings2 } from "lucide-react";
 import { dispatchCommand, dispatchBulkCommand, dispatchScript } from "@/api/commands";
 import type { BulkCommandResult, CommandExecution } from "@/types/command";
 import { CommandEditor } from "./CommandEditor";
@@ -9,6 +9,7 @@ import { CommandOutput } from "./CommandOutput";
 import { CommandHistory } from "./CommandHistory";
 import { InstanceSelector } from "./InstanceSelector";
 import { OutputAggregator } from "./OutputAggregator";
+import { ShellsTab } from "./ShellsTab";
 import { cn } from "@/lib/utils";
 
 // Fetch instances for the selector
@@ -19,7 +20,7 @@ async function fetchInstances() {
   return data.instances;
 }
 
-type Tab = "command" | "script" | "history";
+type Tab = "command" | "script" | "history" | "shells";
 
 interface EnvEntry {
   key: string;
@@ -145,6 +146,7 @@ export function CommandDispatch() {
             { id: "command", label: "Command", Icon: Terminal },
             { id: "script", label: "Script", Icon: FileCode },
             { id: "history", label: "History", Icon: List },
+            { id: "shells", label: "Shells", Icon: SquareTerminal },
           ] as { id: Tab; label: string; Icon: React.ElementType }[]
         ).map(({ id, label, Icon }) => (
           <button
@@ -302,8 +304,8 @@ export function CommandDispatch() {
         </div>
       )}
 
-      {/* Run button (not shown in history tab) */}
-      {activeTab !== "history" && (
+      {/* Run button (not shown in history/shells tabs) */}
+      {activeTab !== "history" && activeTab !== "shells" && (
         <div className="flex items-center justify-between">
           <div className="text-xs text-muted-foreground">
             {currentInstanceIds.length > 0 ? (
@@ -349,6 +351,9 @@ export function CommandDispatch() {
 
       {/* History tab */}
       {activeTab === "history" && <CommandHistory />}
+
+      {/* Shells tab */}
+      {activeTab === "shells" && <ShellsTab instances={instances} />}
     </div>
   );
 }

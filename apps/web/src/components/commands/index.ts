@@ -5,3 +5,6 @@ export { CommandOutput } from "./CommandOutput";
 export { InstanceSelector } from "./InstanceSelector";
 export { OutputAggregator } from "./OutputAggregator";
 export { ScriptUpload } from "./ScriptUpload";
+export { ShellsTab } from "./ShellsTab";
+export { ShellCarousel } from "./ShellCarousel";
+export { ShellLabelEditor } from "./ShellLabelEditor";

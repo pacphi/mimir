@@ -37,7 +37,7 @@ export function LifecycleActions({ instance }: LifecycleActionsProps) {
   }
 
   const canSuspend = instance.status === "RUNNING";
-  const canResume = instance.status === "SUSPENDED";
+  const canResume = ["SUSPENDED", "STOPPED", "ERROR"].includes(instance.status);
   const canDestroy = ["RUNNING", "SUSPENDED", "STOPPED", "ERROR"].includes(instance.status);
 
   return (

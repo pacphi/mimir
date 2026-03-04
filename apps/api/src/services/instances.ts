@@ -9,6 +9,7 @@ import type { Instance, InstanceStatus, Prisma } from "@prisma/client";
 import { db } from "../lib/db.js";
 import { redis, REDIS_CHANNELS } from "../lib/redis.js";
 import { logger } from "../lib/logger.js";
+import { resolveInstanceGeo } from "./geo/geo-resolver.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Input types (validated by Zod in the route layer)
@@ -21,6 +22,14 @@ export interface RegisterInstanceInput {
   extensions: string[];
   configHash?: string;
   sshEndpoint?: string;
+  tags?: Record<string, string>;
+  geo?: {
+    lat?: number;
+    lon?: number;
+    city?: string;
+    source?: string;
+  };
+  remoteIp?: string;
 }
 
 export interface ListInstancesFilter {
@@ -42,6 +51,24 @@ export interface ListInstancesFilter {
  * Returns the created/updated instance record.
  */
 export async function registerInstance(input: RegisterInstanceInput): Promise<Instance> {
+  // Resolve geo coordinates via multi-fallback chain
+  const geoResult = await resolveInstanceGeo({
+    provider: input.provider,
+    region: input.region,
+    tags: input.tags,
+    geo: input.geo,
+    remoteIp: input.remoteIp,
+  });
+
+  const geoFields = geoResult
+    ? {
+        geo_lat: geoResult.lat,
+        geo_lon: geoResult.lon,
+        geo_label: geoResult.label,
+        geo_source: geoResult.source,
+      }
+    : {};
+
   const instance = await db.instance.upsert({
     where: { name: input.name },
     create: {
@@ -52,6 +79,7 @@ export async function registerInstance(input: RegisterInstanceInput): Promise<In
       config_hash: input.configHash ?? null,
       ssh_endpoint: input.sshEndpoint ?? null,
       status: "RUNNING",
+      ...geoFields,
     },
     update: {
       provider: input.provider,
@@ -61,6 +89,7 @@ export async function registerInstance(input: RegisterInstanceInput): Promise<In
       ssh_endpoint: input.sshEndpoint ?? null,
       status: "RUNNING",
       updated_at: new Date(),
+      ...geoFields,
     },
   });
 
@@ -75,6 +104,14 @@ export async function registerInstance(input: RegisterInstanceInput): Promise<In
 
   // Publish to Redis for real-time subscribers
   publishInstanceEvent(instance.id, "deploy", { name: instance.name, provider: instance.provider });
+
+  // Invalidate fleet geo cache and notify WebSocket subscribers
+  redis.del("sindri:cache:fleet:geo").catch(() => {});
+  if (geoResult) {
+    redis
+      .publish("sindri:fleet:geo_update", JSON.stringify({ instanceId: instance.id, ...geoResult }))
+      .catch(() => {});
+  }
 
   logger.info(
     { instanceId: instance.id, name: instance.name, provider: input.provider },

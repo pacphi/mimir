@@ -27,6 +27,7 @@ import {
   BudgetPeriod,
 } from "@prisma/client";
 import * as crypto from "crypto";
+import { resolveRegionCoords } from "../src/services/geo/region-coords.js";
 
 function getDatabaseUrl(): string {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
@@ -159,6 +160,18 @@ async function seedApiKeys(users: Array<{ id: string; email: string }>) {
 async function seedInstances() {
   console.log("Seeding instances...");
 
+  // Helper to resolve geo fields for seed instances
+  function geoFields(region: string | null, provider: string) {
+    const coords = resolveRegionCoords(region, provider);
+    if (!coords) return {};
+    return {
+      geo_lat: coords.lat,
+      geo_lon: coords.lon,
+      geo_label: coords.label,
+      geo_source: "region_registry",
+    };
+  }
+
   const instances = [
     {
       id: "inst_fly_sea_01",
@@ -170,6 +183,7 @@ async function seedInstances() {
       ssh_endpoint: "dev-primary.fly.dev:22",
       status: InstanceStatus.RUNNING,
       created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000), // 4 days ago
+      ...geoFields("sea", "fly"),
     },
     {
       id: "inst_k8s_use1_01",
@@ -181,28 +195,31 @@ async function seedInstances() {
       ssh_endpoint: "staging.k8s.internal:22",
       status: InstanceStatus.RUNNING,
       created_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000), // 1 day ago
+      ...geoFields("us-east-1", "kubernetes"),
     },
     {
       id: "inst_e2b_01",
       name: "ml-sandbox",
       provider: "e2b",
-      region: null,
+      region: "us-west-2",
       extensions: ["python3", "pytorch", "jupyter"],
       config_hash: sha256("ml-sandbox-sindri-yaml-v1"),
       ssh_endpoint: null,
       status: InstanceStatus.STOPPED,
       created_at: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // 7 days ago
+      ...geoFields("us-west-2", "e2b"),
     },
     {
       id: "inst_docker_01",
       name: "local-dev",
       provider: "docker",
-      region: null,
+      region: "local",
       extensions: ["node-lts", "rust", "git", "zsh"],
       config_hash: sha256("local-dev-sindri-yaml-v3"),
       ssh_endpoint: "localhost:2222",
       status: InstanceStatus.RUNNING,
       created_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000), // 2 days ago
+      ...geoFields("local", "docker"),
     },
     {
       id: "inst_fly_iad_01",
@@ -214,6 +231,7 @@ async function seedInstances() {
       ssh_endpoint: "ci-runner-03.fly.dev:22",
       status: InstanceStatus.ERROR,
       created_at: new Date(Date.now() - 12 * 60 * 60 * 1000), // 12 hours ago
+      ...geoFields("iad", "fly"),
     },
   ];
 

@@ -27,6 +27,7 @@ export interface GeoPin {
   label: string;
   count: number;
   statuses: Record<string, number>;
+  provider: string;
 }
 
 export interface FleetGeoResponse {
@@ -34,6 +35,6 @@ export interface FleetGeoResponse {
 }
 
 export interface FleetWebSocketMessage {
-  type: "fleet_stats" | "session_count";
-  payload: FleetStats | { active_sessions: number };
+  type: "fleet_stats" | "session_count" | "geo_update";
+  payload: FleetStats | { active_sessions: number } | GeoPin[];
 }

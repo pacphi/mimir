@@ -53,6 +53,9 @@ export function useFleetWebSocket() {
         if (msg.type === "fleet_stats") {
           queryClient.setQueryData(["fleet", "stats"], msg.payload);
         }
+        if (msg.type === "geo_update") {
+          queryClient.invalidateQueries({ queryKey: ["fleet", "geo"] });
+        }
         if (msg.type === "session_count") {
           queryClient.setQueryData(
             ["fleet", "stats"],

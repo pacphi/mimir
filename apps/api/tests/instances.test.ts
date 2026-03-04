@@ -125,6 +125,9 @@ vi.mock("../src/lib/redis.js", () => ({
     publish: vi.fn(() => Promise.resolve(1)),
     srem: vi.fn(() => Promise.resolve(1)),
     ping: vi.fn(() => Promise.resolve("PONG")),
+    del: vi.fn(() => Promise.resolve(1)),
+    get: vi.fn(() => Promise.resolve(null)),
+    set: vi.fn(() => Promise.resolve("OK")),
   },
   redisSub: {
     psubscribe: vi.fn(),
@@ -136,6 +139,7 @@ vi.mock("../src/lib/redis.js", () => ({
     instanceLogs: (id: string) => `sindri:instance:${id}:logs`,
     instanceEvents: (id: string) => `sindri:instance:${id}:events`,
     instanceCommands: (id: string) => `sindri:instance:${id}:commands`,
+    fleetGeoUpdate: "sindri:fleet:geo_update",
   },
   REDIS_KEYS: {
     instanceOnline: (id: string) => `sindri:instance:${id}:online`,

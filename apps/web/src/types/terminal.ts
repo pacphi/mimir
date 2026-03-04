@@ -85,3 +85,13 @@ export interface BroadcastTarget {
   instanceName: string;
   enabled: boolean;
 }
+
+export interface ShellCard {
+  id: string; // Stable carousel slot ID (crypto.randomUUID())
+  sessionId: string; // API session ID from createTerminalSession
+  instanceId: string;
+  instanceName: string;
+  label: string; // User-editable custom label
+  status: TerminalSession["status"];
+  createdAt: string; // ISO timestamp
+}

@@ -51,6 +51,7 @@ export const REDIS_CHANNELS = {
   instanceEvents: (instanceId: string) => `sindri:instance:${instanceId}:events`,
   instanceCommands: (instanceId: string) => `sindri:instance:${instanceId}:commands`,
   deploymentProgress: (deploymentId: string) => `sindri:deployment:${deploymentId}:progress`,
+  fleetGeoUpdate: "sindri:fleet:geo_update",
 } as const;
 
 export const REDIS_KEYS = {

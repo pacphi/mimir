@@ -3,49 +3,8 @@
  */
 
 import { db } from "../lib/db.js";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Region → approximate lat/lon mapping for geo visualization
-// ─────────────────────────────────────────────────────────────────────────────
-
-const REGION_COORDS: Record<string, { lat: number; lon: number; label: string }> = {
-  // Fly.io regions
-  iad: { lat: 38.94, lon: -77.46, label: "Ashburn, VA" },
-  lax: { lat: 33.94, lon: -118.41, label: "Los Angeles" },
-  ord: { lat: 41.97, lon: -87.91, label: "Chicago" },
-  lhr: { lat: 51.47, lon: -0.45, label: "London" },
-  fra: { lat: 50.11, lon: 8.68, label: "Frankfurt" },
-  nrt: { lat: 35.77, lon: 140.39, label: "Tokyo" },
-  syd: { lat: -33.94, lon: 151.18, label: "Sydney" },
-  sea: { lat: 47.45, lon: -122.3, label: "Seattle" },
-  dfw: { lat: 32.9, lon: -97.04, label: "Dallas" },
-  sin: { lat: 1.36, lon: 103.99, label: "Singapore" },
-  bom: { lat: 19.09, lon: 72.87, label: "Mumbai" },
-  gru: { lat: -23.43, lon: -46.47, label: "São Paulo" },
-  // AWS / E2B regions
-  "us-east-1": { lat: 38.13, lon: -78.45, label: "US East (N. Virginia)" },
-  "us-east-2": { lat: 39.96, lon: -83.0, label: "US East (Ohio)" },
-  "us-west-1": { lat: 37.35, lon: -121.96, label: "US West (N. California)" },
-  "us-west-2": { lat: 45.87, lon: -119.69, label: "US West (Oregon)" },
-  "eu-west-1": { lat: 53.34, lon: -6.26, label: "EU West (Ireland)" },
-  "eu-central-1": { lat: 50.11, lon: 8.68, label: "EU Central (Frankfurt)" },
-  "ap-southeast-1": { lat: 1.36, lon: 103.99, label: "AP (Singapore)" },
-  "ap-northeast-1": { lat: 35.68, lon: 139.69, label: "AP (Tokyo)" },
-  // Generic fallbacks
-  local: { lat: 37.77, lon: -122.42, label: "Local" },
-  default: { lat: 40.71, lon: -74.01, label: "Default" },
-  production: { lat: 40.71, lon: -74.01, label: "Production" },
-  staging: { lat: 37.77, lon: -122.42, label: "Staging" },
-  ssh: { lat: 48.86, lon: 2.35, label: "SSH Remote" },
-};
-
-function getRegionCoords(
-  region: string | null,
-): { lat: number; lon: number; label: string } | null {
-  if (!region) return null;
-  const key = region.toLowerCase();
-  return REGION_COORDS[key] ?? null;
-}
+import { redis } from "../lib/redis.js";
+import { resolveRegionCoords } from "./geo/region-coords.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Fleet stats — shape matches FleetStats in apps/web/src/types/fleet.ts
@@ -108,37 +67,84 @@ export interface GeoPin {
   label: string;
   count: number;
   statuses: Record<string, number>;
+  provider: string;
 }
 
+const GEO_CACHE_KEY = "sindri:cache:fleet:geo";
+const GEO_CACHE_TTL = 10; // seconds
+
 export async function getFleetGeo(): Promise<GeoPin[]> {
+  // Check Redis cache
+  try {
+    const cached = await redis.get(GEO_CACHE_KEY);
+    if (cached) {
+      return JSON.parse(cached) as GeoPin[];
+    }
+  } catch {
+    // Cache miss, continue
+  }
+
   const instances = await db.instance.findMany({
-    select: { id: true, region: true, status: true, provider: true },
+    select: {
+      id: true,
+      region: true,
+      status: true,
+      provider: true,
+      geo_lat: true,
+      geo_lon: true,
+      geo_label: true,
+    },
   });
 
-  const regionMap = new Map<string, GeoPin>();
+  // Group by rounded (lat, lon) to 2 decimal places for co-located clustering
+  const pinMap = new Map<string, GeoPin>();
 
   for (const inst of instances) {
-    const regionKey = inst.region ?? `${inst.provider}-local`;
-    const coords = getRegionCoords(inst.region);
-    if (!coords) continue;
+    let lat = inst.geo_lat;
+    let lon = inst.geo_lon;
+    let label = inst.geo_label;
 
-    if (!regionMap.has(regionKey)) {
-      regionMap.set(regionKey, {
-        region: regionKey,
-        lat: coords.lat,
-        lon: coords.lon,
-        label: coords.label,
+    // Fallback to region registry for instances not yet backfilled
+    if (lat == null || lon == null) {
+      const coords = resolveRegionCoords(inst.region, inst.provider);
+      if (!coords) continue;
+      lat = coords.lat;
+      lon = coords.lon;
+      label = coords.label;
+    }
+
+    // Round to 2 decimal places for grouping co-located instances
+    const roundedLat = Math.round(lat * 100) / 100;
+    const roundedLon = Math.round(lon * 100) / 100;
+    const groupKey = `${roundedLat}:${roundedLon}`;
+
+    if (!pinMap.has(groupKey)) {
+      pinMap.set(groupKey, {
+        region: inst.region ?? `${inst.provider}-local`,
+        lat: roundedLat,
+        lon: roundedLon,
+        label: label ?? `${roundedLat}, ${roundedLon}`,
         count: 0,
         statuses: {},
+        provider: inst.provider,
       });
     }
 
-    const pin = regionMap.get(regionKey)!;
+    const pin = pinMap.get(groupKey)!;
     pin.count += 1;
     pin.statuses[inst.status] = (pin.statuses[inst.status] ?? 0) + 1;
   }
 
-  return Array.from(regionMap.values());
+  const pins = Array.from(pinMap.values());
+
+  // Cache result
+  try {
+    await redis.set(GEO_CACHE_KEY, JSON.stringify(pins), "EX", GEO_CACHE_TTL);
+  } catch {
+    // Non-critical
+  }
+
+  return pins;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

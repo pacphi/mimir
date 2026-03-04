@@ -5,7 +5,17 @@
 -- Extensions
 -- ─────────────────────────────────────────────────────────────────────────────
 
-CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;
+-- TimescaleDB: use DO block to handle version mismatch when the extension
+-- was already loaded by the shared_preload_libraries setting.
+DO $$
+BEGIN
+  CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;
+EXCEPTION
+  WHEN SQLSTATE '42710' THEN
+    -- Extension already loaded with a different version; safe to ignore
+    NULL;
+END
+$$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Enums (all values in their final form)

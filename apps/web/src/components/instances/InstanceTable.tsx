@@ -1,7 +1,9 @@
-import { Server, MapPin, ChevronRight } from "lucide-react";
+import { useRef, useEffect } from "react";
+import { Server, MapPin } from "lucide-react";
 import type { Instance } from "@/types/instance";
 import { StatusBadge } from "./StatusBadge";
 import { MetricsGauge } from "./MetricsGauge";
+import { InstanceRowActions } from "./InstanceRowActions";
 import { formatRelativeTime } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 
@@ -10,6 +12,9 @@ interface InstanceTableProps {
   onSelectInstance?: (instance: Instance) => void;
   selectedIds?: Set<string>;
   onToggleSelect?: (id: string) => void;
+  onSelectAll?: () => void;
+  allSelected?: boolean;
+  someSelected?: boolean;
 }
 
 export function InstanceTable({
@@ -17,15 +22,37 @@ export function InstanceTable({
   onSelectInstance,
   selectedIds,
   onToggleSelect,
+  onSelectAll,
+  allSelected,
+  someSelected,
 }: InstanceTableProps) {
   const hasSelection = Boolean(onToggleSelect);
+  const selectAllRef = useRef<HTMLInputElement>(null);
+
+  // Sync indeterminate state (not controllable via React props)
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = Boolean(someSelected);
+    }
+  }, [someSelected]);
 
   return (
     <div className="rounded-lg border overflow-hidden">
       <table className="w-full text-sm" role="table" aria-label="Instances">
         <thead>
           <tr className="border-b bg-muted/50">
-            {hasSelection && <th className="h-11 w-10 px-3" />}
+            {hasSelection && (
+              <th className="h-11 w-10 px-3">
+                <input
+                  ref={selectAllRef}
+                  type="checkbox"
+                  checked={allSelected ?? false}
+                  onChange={() => onSelectAll?.()}
+                  className="h-4 w-4 rounded border-input accent-primary cursor-pointer"
+                  aria-label="Select all instances"
+                />
+              </th>
+            )}
             <th className="h-11 px-4 text-left font-medium text-muted-foreground">Name</th>
             <th className="h-11 px-4 text-left font-medium text-muted-foreground">Status</th>
             <th className="h-11 px-4 text-left font-medium text-muted-foreground hidden sm:table-cell">
@@ -43,7 +70,7 @@ export function InstanceTable({
             <th className="h-11 px-4 text-left font-medium text-muted-foreground hidden xl:table-cell">
               Updated
             </th>
-            {onSelectInstance && <th className="h-11 w-8 px-2" />}
+            <th className="h-11 w-10 px-2" />
           </tr>
         </thead>
         <tbody>
@@ -83,7 +110,6 @@ export function InstanceTable({
                     className="h-14 px-3"
                     onClick={(e) => {
                       e.stopPropagation();
-                      onToggleSelect?.(instance.id);
                     }}
                   >
                     <input
@@ -122,7 +148,7 @@ export function InstanceTable({
                       {instance.region}
                     </span>
                   ) : (
-                    <span className="text-muted-foreground/50">—</span>
+                    <span className="text-muted-foreground/50">&mdash;</span>
                   )}
                 </td>
 
@@ -131,7 +157,7 @@ export function InstanceTable({
                   {hb && instance.status === "RUNNING" ? (
                     <MetricsGauge label="" value={hb.cpu_percent} size="sm" className="w-24" />
                   ) : (
-                    <span className="text-muted-foreground/50">—</span>
+                    <span className="text-muted-foreground/50">&mdash;</span>
                   )}
                 </td>
 
@@ -140,7 +166,7 @@ export function InstanceTable({
                   {memPercent !== null && instance.status === "RUNNING" ? (
                     <MetricsGauge label="" value={memPercent} size="sm" className="w-24" />
                   ) : (
-                    <span className="text-muted-foreground/50">—</span>
+                    <span className="text-muted-foreground/50">&mdash;</span>
                   )}
                 </td>
 
@@ -149,12 +175,10 @@ export function InstanceTable({
                   {formatRelativeTime(instance.updated_at)}
                 </td>
 
-                {/* Chevron */}
-                {onSelectInstance && (
-                  <td className="h-14 px-2">
-                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                  </td>
-                )}
+                {/* Row actions */}
+                <td className="h-14 px-2" onClick={(e) => e.stopPropagation()}>
+                  <InstanceRowActions instance={instance} />
+                </td>
               </tr>
             );
           })}

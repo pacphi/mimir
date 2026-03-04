@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { LayoutGrid, List, RefreshCw, AlertCircle, ServerOff } from "lucide-react";
 import type { Instance, InstanceFilters } from "@/types/instance";
@@ -36,6 +36,13 @@ export function InstanceList({ onSelectInstance }: InstanceListProps) {
     [instances, selectedIds],
   );
 
+  // Clear selection when switching to grid view (grid no longer supports selection)
+  useEffect(() => {
+    if (viewMode === "grid") {
+      setSelectedIds(new Set());
+    }
+  }, [viewMode]);
+
   const handleToggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -47,6 +54,15 @@ export function InstanceList({ onSelectInstance }: InstanceListProps) {
       return next;
     });
   }, []);
+
+  const handleSelectAll = useCallback(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === instances.length) {
+        return new Set();
+      }
+      return new Set(instances.map((i) => i.id));
+    });
+  }, [instances]);
 
   const handleClearSelection = useCallback(() => {
     setSelectedIds(new Set());
@@ -77,6 +93,9 @@ export function InstanceList({ onSelectInstance }: InstanceListProps) {
       </div>
     );
   }
+
+  const allSelected = instances.length > 0 && selectedIds.size === instances.length;
+  const someSelected = selectedIds.size > 0 && selectedIds.size < instances.length;
 
   return (
     <div className="space-y-4">
@@ -142,13 +161,7 @@ export function InstanceList({ onSelectInstance }: InstanceListProps) {
       ) : viewMode === "grid" ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {instances.map((instance) => (
-            <SelectableInstanceCard
-              key={instance.id}
-              instance={instance}
-              selected={selectedIds.has(instance.id)}
-              onToggleSelect={handleToggleSelect}
-              onClick={onSelectInstance}
-            />
+            <InstanceCard key={instance.id} instance={instance} onClick={onSelectInstance} />
           ))}
         </div>
       ) : (
@@ -157,48 +170,11 @@ export function InstanceList({ onSelectInstance }: InstanceListProps) {
           onSelectInstance={onSelectInstance}
           selectedIds={selectedIds}
           onToggleSelect={handleToggleSelect}
+          onSelectAll={handleSelectAll}
+          allSelected={allSelected}
+          someSelected={someSelected}
         />
       )}
-    </div>
-  );
-}
-
-interface SelectableInstanceCardProps {
-  instance: Instance;
-  selected: boolean;
-  onToggleSelect: (id: string) => void;
-  onClick?: (instance: Instance) => void;
-}
-
-function SelectableInstanceCard({
-  instance,
-  selected,
-  onToggleSelect,
-  onClick,
-}: SelectableInstanceCardProps) {
-  return (
-    <div className="relative">
-      {/* Selection checkbox overlay */}
-      <div
-        className="absolute left-2 top-2 z-10"
-        onClick={(e) => {
-          e.stopPropagation();
-          onToggleSelect(instance.id);
-        }}
-      >
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={() => onToggleSelect(instance.id)}
-          className="h-4 w-4 rounded border-input accent-primary cursor-pointer"
-          aria-label={`Select ${instance.name}`}
-        />
-      </div>
-      <InstanceCard
-        instance={instance}
-        onClick={onClick}
-        className={cn(selected && "ring-2 ring-primary border-primary/50")}
-      />
     </div>
   );
 }

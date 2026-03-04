@@ -53,6 +53,15 @@ export function BulkOperations({
 
   if (count === 0) return null;
 
+  // Determine which actions are applicable based on aggregate status
+  const canSuspendAny = selectedInstances.some((i) => i.status === "RUNNING");
+  const canResumeAny = selectedInstances.some((i) =>
+    ["SUSPENDED", "STOPPED", "ERROR"].includes(i.status),
+  );
+  const canDestroyAny = selectedInstances.some((i) =>
+    ["RUNNING", "SUSPENDED", "STOPPED", "ERROR"].includes(i.status),
+  );
+
   function handleClose() {
     setAction(null);
     setResults(null);
@@ -110,6 +119,7 @@ export function BulkOperations({
             size="sm"
             className="h-8 text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950"
             onClick={() => setAction("suspend")}
+            disabled={!canSuspendAny}
           >
             <PauseCircle className="h-3.5 w-3.5" />
             Suspend
@@ -119,6 +129,7 @@ export function BulkOperations({
             size="sm"
             className="h-8 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-950"
             onClick={() => setAction("resume")}
+            disabled={!canResumeAny}
           >
             <PlayCircle className="h-3.5 w-3.5" />
             Resume
@@ -128,6 +139,7 @@ export function BulkOperations({
             size="sm"
             className="h-8 text-destructive hover:text-destructive hover:bg-destructive/10"
             onClick={() => setAction("destroy")}
+            disabled={!canDestroyAny}
           >
             <Trash2 className="h-3.5 w-3.5" />
             Destroy

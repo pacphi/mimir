@@ -87,19 +87,21 @@ export async function suspendInstance(id: string): Promise<Instance | null> {
 }
 
 /**
- * Resume a SUSPENDED instance (sets status to RUNNING).
- * Only SUSPENDED instances can be resumed.
+ * Resume an instance (sets status to RUNNING).
+ * Instances in SUSPENDED, STOPPED, or ERROR status can be resumed.
  */
 export async function resumeInstance(id: string): Promise<Instance | null> {
   const existing = await db.instance.findUnique({ where: { id } });
   if (!existing) return null;
 
-  if (existing.status !== "SUSPENDED") {
+  const resumableStatuses = ["SUSPENDED", "STOPPED", "ERROR"];
+  if (!resumableStatuses.includes(existing.status)) {
     throw new Error(
       `Instance '${existing.name}' cannot be resumed: current status is ${existing.status}`,
     );
   }
 
+  const previousStatus = existing.status;
   const instance = await db.instance.update({
     where: { id },
     data: { status: "RUNNING", updated_at: new Date() },
@@ -109,7 +111,7 @@ export async function resumeInstance(id: string): Promise<Instance | null> {
     data: {
       instance_id: id,
       event_type: "RESUME",
-      metadata: { triggered_by: "api", previous_status: "SUSPENDED" },
+      metadata: { triggered_by: "api", previous_status: previousStatus },
     },
   });
 

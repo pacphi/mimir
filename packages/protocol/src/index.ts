@@ -48,6 +48,12 @@ export interface RegistrationPayload {
   os: string;
   arch: string;
   tags?: Record<string, string>;
+  geo?: {
+    lat?: number;
+    lon?: number;
+    city?: string;
+    source?: string; // "cloud_metadata" | "ip" | "manual"
+  };
 }
 
 export interface TerminalCreatePayload {

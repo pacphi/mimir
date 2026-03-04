@@ -154,13 +154,17 @@ enum TaskExecutionStatus {
 model Instance {
   id           String         @id @default(cuid())
   name         String         @unique
-  provider     String         // fly, docker, devpod, e2b, kubernetes
+  provider     String         // fly, docker, devpod, e2b, kubernetes, digitalocean, gcp, azure, runpod, northflank, ssh
   region       String?        // e.g. sea, iad, us-east-1
   extensions   String[]       // List of installed extension names
   config_hash  String?        // SHA256 of sindri.yaml at deploy time
   ssh_endpoint String?        // SSH connection string (host:port)
   status       InstanceStatus @default(UNKNOWN)
   team_id      String?        // optional team workspace assignment
+  geo_lat      Float?         // Resolved latitude
+  geo_lon      Float?         // Resolved longitude
+  geo_label    String?        // Human-readable location (e.g. "Ashburn, VA")
+  geo_source   String?        // "region_registry" | "cloud_metadata" | "ip_geolocation" | "user_tags"
   created_at   DateTime       @default(now())
   updated_at   DateTime       @updatedAt
 
@@ -185,6 +189,7 @@ model Instance {
   @@index([provider])
   @@index([created_at])
   @@index([team_id])
+  @@index([geo_lat, geo_lon, status])
 }
 
 /// Periodic health/metrics ping from a running Sindri instance agent.

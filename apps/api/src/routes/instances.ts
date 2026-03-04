@@ -30,7 +30,20 @@ const RegisterInstanceSchema = z.object({
     .min(1)
     .max(128)
     .regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, "Name must be lowercase alphanumeric and hyphens"),
-  provider: z.enum(["fly", "docker", "devpod", "e2b", "kubernetes"]),
+  provider: z.enum([
+    "fly",
+    "docker",
+    "devpod",
+    "e2b",
+    "kubernetes",
+    "digitalocean",
+    "gcp",
+    "azure",
+    "aws",
+    "runpod",
+    "northflank",
+    "ssh",
+  ]),
   region: z.string().max(64).optional(),
   extensions: z.array(z.string().min(1).max(128)).max(200).default([]),
   configHash: z
@@ -38,10 +51,34 @@ const RegisterInstanceSchema = z.object({
     .regex(/^[0-9a-f]{64}$/, "Must be a SHA-256 hex string")
     .optional(),
   sshEndpoint: z.string().max(256).optional(),
+  tags: z.record(z.string(), z.string()).optional(),
+  geo: z
+    .object({
+      lat: z.number().min(-90).max(90).optional(),
+      lon: z.number().min(-180).max(180).optional(),
+      city: z.string().max(128).optional(),
+      source: z.string().max(32).optional(),
+    })
+    .optional(),
 });
 
 const ListInstancesQuerySchema = z.object({
-  provider: z.enum(["fly", "docker", "devpod", "e2b", "kubernetes"]).optional(),
+  provider: z
+    .enum([
+      "fly",
+      "docker",
+      "devpod",
+      "e2b",
+      "kubernetes",
+      "digitalocean",
+      "gcp",
+      "azure",
+      "aws",
+      "runpod",
+      "northflank",
+      "ssh",
+    ])
+    .optional(),
   status: z
     .enum(["RUNNING", "STOPPED", "DEPLOYING", "DESTROYING", "SUSPENDED", "ERROR", "UNKNOWN"])
     .optional(),
@@ -82,7 +119,16 @@ instances.post("/", rateLimitStrict, async (c) => {
   }
 
   try {
-    const instance = await registerInstance(parseResult.data);
+    // Extract remote IP for geo-detection of docker/kubernetes instances
+    const remoteIp =
+      c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ??
+      c.req.header("x-real-ip") ??
+      undefined;
+
+    const instance = await registerInstance({
+      ...parseResult.data,
+      remoteIp,
+    });
     return c.json(serializeInstance(instance), 201);
   } catch (err) {
     logger.error({ err }, "Failed to register instance");

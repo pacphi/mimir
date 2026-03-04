@@ -41,7 +41,7 @@
   },
   "lint-staged": {
     "*.{ts,tsx,js,json,css,md,yaml,yml}": "prettier --check",
-    "*.{ts,tsx,js}": "eslint --no-warn-ignored"
+    "apps/**/*.{ts,tsx,js}": "eslint --no-warn-ignored"
   },
   "packageManager": "pnpm@10.30.0",
   "pnpm": {

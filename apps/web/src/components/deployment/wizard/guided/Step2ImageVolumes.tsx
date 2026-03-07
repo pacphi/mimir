@@ -11,10 +11,12 @@ import {
 } from "@/components/ui/select";
 import { useDeploymentWizardStore } from "@/stores/deploymentWizardStore";
 import { SYSTEM_MOUNT_PATH } from "@/lib/sindri-constraints";
+import { useAppConfig } from "@/hooks/useAppConfig";
 
 export function Step2ImageVolumes() {
   const { imageConfig, setImageConfig, volumes, addVolume, removeVolume, updateVolume } =
     useDeploymentWizardStore();
+  const { data: appConfig } = useAppConfig();
 
   return (
     <div className="space-y-6">
@@ -22,8 +24,8 @@ export function Step2ImageVolumes() {
       <div>
         <h3 className="text-sm font-medium mb-3">Image Configuration</h3>
         <p className="text-xs text-muted-foreground mb-3">
-          Configure the container image for your deployment. All fields are optional — defaults to
-          the latest official image.
+          Leave blank to use the default image ({appConfig?.sindriDefaultImage ?? "sindri:latest"}).
+          Set a registry and version to pull a specific image from a container registry.
         </p>
 
         <div className="grid grid-cols-2 gap-4">
@@ -34,7 +36,7 @@ export function Step2ImageVolumes() {
             <Input
               id="img-registry"
               className="mt-1"
-              placeholder="ghcr.io/pacphi/sindri"
+              placeholder={appConfig?.sindriImageRegistry ?? "ghcr.io/pacphi/sindri"}
               value={imageConfig.registry ?? ""}
               onChange={(e) => setImageConfig({ registry: e.target.value || undefined })}
             />

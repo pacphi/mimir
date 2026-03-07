@@ -47,6 +47,22 @@ export function DeploymentWizard({ onDeployed }: DeploymentWizardProps) {
     store.setIsDeploying(false);
   }
 
+  function handleBackToWizard() {
+    store.setDeploymentId(null);
+    store.setDeployError(null);
+    store.setIsDeploying(false);
+    // Return to review step so user can adjust config
+    store.setStep(7);
+  }
+
+  function handleRetry() {
+    store.setDeploymentId(null);
+    store.setDeployError(null);
+    store.setIsDeploying(false);
+    // The GuidedWizard's handleDeploy will be triggered from Step 7
+    store.setStep(7);
+  }
+
   const cliBanner = !cliAvailable && (
     <div className="flex gap-3 p-4 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300">
       <svg
@@ -79,7 +95,9 @@ export function DeploymentWizard({ onDeployed }: DeploymentWizardProps) {
         <div>
           <h2 className="text-xl font-semibold">Deploying Instance</h2>
           <p className="text-sm text-muted-foreground mt-1">
-            Deployment is in progress. Do not close this window.
+            {store.deployError
+              ? "Deployment failed. Review the logs and try again."
+              : "Deployment is in progress. Do not close this window."}
           </p>
         </div>
         <DeploymentProgress
@@ -87,6 +105,8 @@ export function DeploymentWizard({ onDeployed }: DeploymentWizardProps) {
           onComplete={handleDeployComplete}
           onError={handleDeployError}
           onCancel={handleCancelDeployment}
+          onBackToWizard={handleBackToWizard}
+          onRetry={handleRetry}
         />
       </div>
     );

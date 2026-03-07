@@ -200,16 +200,71 @@ export function validateYamlSecrets(yaml: string): string[] {
 }
 
 /**
- * B4: Resolve console placeholders and inject system secrets (AUTHORIZED_KEYS).
- * Extends the original resolveConsolePlaceholders with SSH key injection.
+ * B4: Resolve console placeholders, inject system secrets, and ensure
+ * an image reference exists.
+ *
+ * When the YAML contains neither `image_config:` nor `image:` under
+ * `deployment:`, inject `image: <SINDRI_DEFAULT_IMAGE>` so the CLI has
+ * something to deploy.
+ *
+ *   Dev default:  sindri:latest  (locally built via `make v3-docker-build-fast`)
+ *   Prod example: ghcr.io/pacphi/sindri:3.1.0
  */
 function resolveSystemSecrets(yaml: string): string {
-  return resolveConsolePlaceholders(yaml);
+  let resolved = resolveConsolePlaceholders(yaml);
+
+  // Inject default image when no explicit image config is present
+  const hasImage = /\bimage_config:/m.test(resolved) || /\bimage:/m.test(resolved);
+  if (!hasImage) {
+    const defaultImage = process.env.SINDRI_DEFAULT_IMAGE ?? "sindri:latest";
+    // Insert `image: <default>` after the `deployment:` block's `provider:` line
+    resolved = resolved.replace(
+      /^(deployment:\s*\n\s+provider:\s+.+)$/m,
+      `$1\n  image: ${defaultImage}`,
+    );
+  }
+
+  return resolved;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal helpers
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Extract a user-friendly error summary from raw CLI output.
+ * Strips file paths, Docker build noise, and command invocations.
+ */
+function sanitizeDeployError(raw: string): string {
+  // Extract the first "Error: ..." line from the CLI output
+  const errorLines = raw.split("\n").filter((l) => /^Error:|error:/i.test(l.trim()));
+  if (errorLines.length > 0) {
+    // Take the most specific error line (usually the first)
+    let summary = errorLines[0].trim();
+    // Strip "Command failed: /path/to/sindri ..." prefix
+    summary = summary.replace(/^Command failed:\s*\S+\s*/, "");
+    // Strip leading "Error: " for cleaner display
+    summary = summary.replace(/^Error:\s*/, "");
+    if (summary.length > 0) return summary;
+  }
+
+  // Fallback: strip command path from "Command failed: ..." messages
+  const cmdMatch = raw.match(/^Command failed:\s*\S+\s*(.*)/s);
+  if (cmdMatch) {
+    // Take only the first meaningful line, strip Docker build step noise
+    const firstLine = cmdMatch[1]
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l.length > 0 && !l.startsWith("#"));
+    if (firstLine) return firstLine;
+  }
+
+  // Last resort: truncate and strip paths
+  return raw
+    .replace(/\/[\w/.-]+\/sindri\b/g, "sindri")
+    .replace(/\/tmp\/sindri-deploy-\S+/g, "<config>")
+    .slice(0, 300);
+}
 
 async function emitProgress(
   deploymentId: string,
@@ -350,14 +405,18 @@ async function runProvisioningFlow(
     });
     logger.info({ deploymentId, instanceId: instance.id }, "Deployment completed successfully");
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error during provisioning";
-    appendLog(`ERROR: ${message}`);
+    const rawMessage = err instanceof Error ? err.message : "Unknown error during provisioning";
+
+    // Extract user-friendly summary from CLI errors (strip paths, build noise)
+    const userMessage = sanitizeDeployError(rawMessage);
+
+    appendLog(`ERROR: ${userMessage}`);
     await db.deployment
       .update({
         where: { id: deploymentId },
         data: {
           status: "FAILED",
-          error: message,
+          error: rawMessage, // full error for admin/debug
           completed_at: new Date(),
           logs: logLines.join("\n"),
         },
@@ -365,7 +424,7 @@ async function runProvisioningFlow(
       .catch((dbErr: unknown) =>
         logger.warn({ dbErr, deploymentId }, "Failed to persist failure state"),
       );
-    await emitProgress(deploymentId, message, { type: "error", status: "FAILED" });
+    await emitProgress(deploymentId, userMessage, { type: "error", status: "FAILED" });
     logger.error({ err, deploymentId }, "Deployment failed");
   } finally {
     // ── Secure cleanup ────────────────────────────────────────────────────────

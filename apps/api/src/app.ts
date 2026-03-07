@@ -11,6 +11,7 @@ import { secureHeaders } from "hono/secure-headers";
 import { loggerMiddleware } from "./middleware/logger.js";
 import { instancesRouter } from "./routes/instances.js";
 import { lifecycleRouter } from "./routes/instances/lifecycle.js";
+import { terminalRouter } from "./routes/instances/terminal.js";
 import { healthRouter } from "./routes/health.js";
 import { commandsRouter } from "./routes/commands.js";
 import { tasksRouter } from "./routes/tasks.js";
@@ -67,10 +68,19 @@ export function createApp(): Hono {
     app.use("/api/v1/*", devAuthMiddleware);
   }
 
-  // Public config endpoint — tells the frontend whether auth is bypassed
+  // Public config endpoint — tells the frontend about runtime settings
+  //
+  // Image resolution:
+  //   SINDRI_DEFAULT_IMAGE — used when user leaves image fields blank
+  //     Dev default:  "sindri:latest" (locally-built via `make v3-docker-build-fast`)
+  //     Prod example: "ghcr.io/pacphi/sindri:3.1.0"
+  //   SINDRI_IMAGE_REGISTRY + SINDRI_IMAGE_VERSION — used for image_config mode
   app.get("/api/config", (c) => {
     return c.json({
       authBypass: isDevAuthBypassEnabled(),
+      sindriDefaultImage: process.env.SINDRI_DEFAULT_IMAGE || "sindri:latest",
+      sindriImageRegistry: process.env.SINDRI_IMAGE_REGISTRY || "ghcr.io/pacphi/sindri",
+      sindriImageVersion: process.env.SINDRI_IMAGE_VERSION || "latest",
     });
   });
 
@@ -83,6 +93,7 @@ export function createApp(): Hono {
   app.route("/api/v1/me", meRouter);
   app.route("/api/v1/instances", instancesRouter);
   app.route("/api/v1/instances", lifecycleRouter);
+  app.route("/api/v1/instances", terminalRouter);
   app.route("/api/v1/commands", commandsRouter);
   app.route("/api/v1/tasks", tasksRouter);
   app.route("/api/v1/deployments", deploymentsRouter);

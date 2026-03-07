@@ -18,6 +18,9 @@
 import { WebSocketServer, WebSocket } from "ws";
 import type { IncomingMessage, Server } from "http";
 import { Prisma } from "@prisma/client";
+import pty from "node-pty";
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { authenticateUpgrade } from "../websocket/auth.js";
 import { parseEnvelope, makeEnvelope, CHANNEL, MESSAGE_TYPE } from "../websocket/channels.js";
 import { redis, redisSub, REDIS_CHANNELS, REDIS_KEYS } from "../lib/redis.js";
@@ -452,7 +455,7 @@ async function routeBrowserMessage(conn: BrowserConnection, raw: string): Promis
 export function attachWebSocketGateway(server: Server): WebSocketServer {
   initRedisSubscriber();
 
-  const wss = new WebSocketServer({ server, path: "/ws" });
+  const wss = new WebSocketServer({ noServer: true });
 
   wss.on("connection", async (ws: WebSocket, req: IncomingMessage) => {
     // Authenticate
@@ -630,6 +633,10 @@ export function attachWebSocketGateway(server: Server): WebSocketServer {
 
   const deploymentWss = new WebSocketServer({ noServer: true });
 
+  // ── Terminal WebSocket: /ws/terminal/:sessionId ────────────────────────────
+
+  const terminalWss = new WebSocketServer({ noServer: true });
+
   server.on("upgrade", (req, socket, head) => {
     const pathname = (req.url ?? "").split("?")[0];
 
@@ -641,19 +648,85 @@ export function attachWebSocketGateway(server: Server): WebSocketServer {
       return;
     }
 
+    // Route deployment progress
     const deployMatch = /^\/ws\/deployments\/([^/]+)$/.exec(pathname);
-    if (!deployMatch) return;
+    if (deployMatch) {
+      const deploymentId = deployMatch[1];
+      deploymentWss.handleUpgrade(req, socket, head, (ws) => {
+        deploymentWss.emit("connection", ws, req, deploymentId);
+      });
+      return;
+    }
 
-    const deploymentId = deployMatch[1];
-    deploymentWss.handleUpgrade(req, socket, head, (ws) => {
-      deploymentWss.emit("connection", ws, req, deploymentId);
-    });
+    // Route terminal sessions
+    const terminalMatch = /^\/ws\/terminal\/([^/]+)$/.exec(pathname);
+    if (terminalMatch) {
+      const sessionId = terminalMatch[1];
+      terminalWss.handleUpgrade(req, socket, head, (ws) => {
+        terminalWss.emit("connection", ws, req, sessionId);
+      });
+      return;
+    }
+
+    // Route main gateway (agents + browser clients)
+    if (pathname === "/ws") {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit("connection", ws, req);
+      });
+      return;
+    }
+
+    // Unknown path — reject
+    socket.destroy();
   });
 
   deploymentWss.on("connection", (ws: WebSocket, _req: IncomingMessage, deploymentId: string) => {
     logger.info({ deploymentId }, "Deployment progress WebSocket connected");
 
     const channel = REDIS_CHANNELS.deploymentProgress(deploymentId);
+
+    // Send current deployment status from the database so the UI catches up
+    // on any events that fired before the WebSocket connected.
+    void db.deployment
+      .findUnique({ where: { id: deploymentId } })
+      .then((deployment) => {
+        if (!deployment || ws.readyState !== WebSocket.OPEN) return;
+
+        if (deployment.status === "FAILED") {
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              deployment_id: deploymentId,
+              message: "Deployment failed. Check your configuration and try again.",
+              status: "FAILED",
+            }),
+          );
+        } else if (deployment.status === "SUCCEEDED") {
+          ws.send(
+            JSON.stringify({
+              type: "complete",
+              deployment_id: deploymentId,
+              message: "Instance is online and ready",
+              status: "SUCCEEDED",
+              progress_percent: 100,
+              instance_id: deployment.instance_id,
+            }),
+          );
+        } else if (deployment.status === "IN_PROGRESS") {
+          ws.send(
+            JSON.stringify({
+              type: "status",
+              deployment_id: deploymentId,
+              message: "Deployment in progress...",
+              status: "IN_PROGRESS",
+              progress_percent: 40,
+            }),
+          );
+        }
+      })
+      .catch((err: unknown) =>
+        logger.warn({ err, deploymentId }, "Failed to fetch deployment status on WS connect"),
+      );
 
     // Subscribe to deployment progress events from Redis
     const handleMessage = (_pattern: string, ch: string, message: string) => {
@@ -676,6 +749,146 @@ export function attachWebSocketGateway(server: Server): WebSocketServer {
       logger.warn({ err, deploymentId }, "Deployment WebSocket error");
     });
   });
+
+  // ── Terminal WebSocket handler ──────────────────────────────────────────────
+  // Browser connects here after creating a session via POST /api/v1/instances/:id/terminal.
+  //
+  // For Docker instances: spawns `docker exec -it <container> /bin/bash`
+  // For cloud instances:  bridges to agent via Redis (future)
+
+  terminalWss.on("connection", (ws: WebSocket, _req: IncomingMessage, sessionId: string) => {
+    logger.info({ sessionId }, "Terminal WebSocket connected");
+
+    void db.terminalSession
+      .findUnique({ where: { id: sessionId }, select: { instance_id: true } })
+      .then(async (session) => {
+        if (!session) {
+          ws.close(4004, "Session not found");
+          return;
+        }
+
+        const instance = await db.instance.findUnique({
+          where: { id: session.instance_id },
+          select: { name: true, provider: true },
+        });
+
+        if (!instance) {
+          ws.close(4004, "Instance not found");
+          return;
+        }
+
+        if (instance.provider === "docker") {
+          spawnDockerTerminal(ws, instance.name, sessionId);
+        } else {
+          // For non-Docker instances, send a message and close gracefully
+          ws.send(
+            JSON.stringify({
+              type: "data",
+              data: `\r\nTerminal sessions for ${instance.provider} instances are not yet supported.\r\n`,
+            }),
+          );
+        }
+      })
+      .catch((err: unknown) => {
+        logger.error({ err, sessionId }, "Failed to look up terminal session");
+        ws.close(4500, "Internal error");
+      });
+
+    ws.on("error", (err) => {
+      logger.warn({ err, sessionId }, "Terminal WebSocket error");
+    });
+  });
+
+  function spawnDockerTerminal(ws: WebSocket, containerName: string, sessionId: string) {
+    // Resolve the docker binary — check common locations since node-pty's
+    // posix_spawnp may not find it if PATH is incomplete.
+    let dockerBin = "";
+    for (const p of ["/usr/local/bin/docker", "/opt/homebrew/bin/docker", "/usr/bin/docker"]) {
+      if (existsSync(p)) {
+        dockerBin = p;
+        break;
+      }
+    }
+    if (!dockerBin) {
+      try {
+        dockerBin = execFileSync("/usr/bin/which", ["docker"], { encoding: "utf-8" }).trim();
+      } catch {
+        dockerBin = "docker"; // last resort — let posix_spawnp try PATH
+      }
+    }
+
+    logger.info({ sessionId, containerName, dockerBin }, "Spawning docker terminal");
+
+    const term = pty.spawn(
+      dockerBin,
+      [
+        "exec",
+        "-it",
+        "-u",
+        "developer",
+        "-w",
+        "/alt/home/developer",
+        containerName,
+        "/bin/bash",
+        "-l",
+      ],
+      {
+        name: "xterm-256color",
+        cols: 80,
+        rows: 24,
+        env: { ...process.env, TERM: "xterm-256color" },
+      },
+    );
+
+    logger.info({ sessionId, containerName, pid: term.pid }, "Docker terminal spawned (node-pty)");
+
+    // PTY output → browser
+    term.onData((data: string) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "data", data }));
+      }
+    });
+
+    term.onExit(({ exitCode }) => {
+      logger.info({ sessionId, exitCode }, "Docker terminal process exited");
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(
+          JSON.stringify({
+            type: "data",
+            data: `\r\n[Process exited with code ${exitCode}]\r\n`,
+          }),
+        );
+        ws.close(1000, "Process exited");
+      }
+    });
+
+    // Browser input → PTY
+    ws.on("message", (raw) => {
+      const str = Buffer.isBuffer(raw) ? raw.toString("utf-8") : String(raw);
+      try {
+        const msg = JSON.parse(str) as {
+          type: string;
+          data?: string;
+          cols?: number;
+          rows?: number;
+        };
+        if (msg.type === "data" && msg.data) {
+          term.write(msg.data);
+        }
+        if (msg.type === "resize" && msg.cols && msg.rows) {
+          term.resize(msg.cols, msg.rows);
+        }
+      } catch {
+        // Raw text — send directly
+        term.write(str);
+      }
+    });
+
+    ws.on("close", () => {
+      logger.info({ sessionId }, "Terminal WebSocket disconnected, killing PTY");
+      term.kill();
+    });
+  }
 
   return wss;
 }

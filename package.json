@@ -49,6 +49,7 @@
       "@prisma/engines",
       "bcrypt",
       "esbuild",
+      "node-pty",
       "prisma"
     ],
     "overrides": {

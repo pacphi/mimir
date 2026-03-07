@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useDeploymentWizardStore } from "@/stores/deploymentWizardStore";
 import { PROVIDER_CATALOG } from "@/types/provider-options";
+import { useAppConfig } from "@/hooks/useAppConfig";
 import { apiFetch } from "@/lib/api-fetch";
 
 interface ReviewRowProps {
@@ -27,6 +28,11 @@ interface Step7ReviewProps {
 
 export function Step7Review({ onDeploy, isDeploying, cliAvailable = true }: Step7ReviewProps) {
   const store = useDeploymentWizardStore();
+  const { data: appConfig } = useAppConfig();
+  const imageDefaults = {
+    registry: appConfig?.sindriImageRegistry ?? "ghcr.io/pacphi/sindri",
+    version: appConfig?.sindriImageVersion ?? "latest",
+  };
 
   // Save as template state
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
@@ -39,7 +45,7 @@ export function Step7Review({ onDeploy, isDeploying, cliAvailable = true }: Step
 
   // Recompute YAML on mount
   useEffect(() => {
-    store.recomputeYaml();
+    store.recomputeYaml(imageDefaults);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

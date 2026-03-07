@@ -1,10 +1,10 @@
 import { type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { ShieldOff } from "lucide-react";
 import { Sidebar } from "./Sidebar";
 import { useUIStore } from "@/stores/uiStore";
 import { cn } from "@/lib/utils";
 import { useInstanceWebSocket } from "@/hooks/useInstanceWebSocket";
+import { useAppConfig } from "@/hooks/useAppConfig";
 import { CommandPalette } from "@/components/command-palette";
 
 interface AppLayoutProps {
@@ -12,15 +12,7 @@ interface AppLayoutProps {
 }
 
 function AuthBypassBanner() {
-  const { data } = useQuery({
-    queryKey: ["app-config"],
-    queryFn: async () => {
-      const res = await fetch("/api/config");
-      if (!res.ok) return { authBypass: false };
-      return res.json() as Promise<{ authBypass: boolean }>;
-    },
-    staleTime: Infinity,
-  });
+  const { data } = useAppConfig();
 
   if (!data?.authBypass) return null;
 

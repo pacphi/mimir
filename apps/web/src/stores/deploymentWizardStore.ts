@@ -1,7 +1,12 @@
 import { create } from "zustand";
 import type { ProviderId } from "@/types/provider-options";
 import type { DeploymentSecret } from "@/types/deployment";
-import { assembleYaml, type ImageConfig, type VolumeEntry } from "@/lib/yaml-assembler";
+import {
+  assembleYaml,
+  type ImageConfig,
+  type ImageDefaults,
+  type VolumeEntry,
+} from "@/lib/yaml-assembler";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -104,8 +109,8 @@ export interface DeploymentWizardActions {
   setDeploymentId: (id: string | null) => void;
   setDeployError: (error: string | null) => void;
 
-  // Recompute assembled YAML
-  recomputeYaml: () => void;
+  // Recompute assembled YAML (imageDefaults from app config)
+  recomputeYaml: (imageDefaults: ImageDefaults) => void;
 
   // Reset
   reset: () => void;
@@ -142,12 +147,13 @@ const INITIAL_STATE: DeploymentWizardState = {
 // Store
 // ─────────────────────────────────────────────────────────────────────────────
 
-function computeYaml(state: DeploymentWizardState): string {
+function computeYaml(state: DeploymentWizardState, imageDefaults: ImageDefaults): string {
   if (!state.provider || !state.name) return "";
   return assembleYaml({
     name: state.name,
     provider: state.provider,
     imageConfig: state.imageConfig,
+    imageDefaults,
     volumes: state.volumes,
     profileName: state.profileName,
     selectedExtensions: state.selectedExtensions,
@@ -234,7 +240,8 @@ export const useDeploymentWizardStore = create<DeploymentWizardState & Deploymen
     setDeployError: (error) => set({ deployError: error }),
 
     // ── YAML ──────────────────────────────────────────────────────────────
-    recomputeYaml: () => set((s) => ({ assembledYaml: computeYaml(s) })),
+    recomputeYaml: (imageDefaults) =>
+      set((s) => ({ assembledYaml: computeYaml(s, imageDefaults) })),
 
     // ── Reset ─────────────────────────────────────────────────────────────
     reset: () => set(INITIAL_STATE),

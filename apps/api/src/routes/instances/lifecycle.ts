@@ -19,6 +19,10 @@ import { db } from "../../lib/db.js";
 import { redis, REDIS_CHANNELS } from "../../lib/redis.js";
 import { logger } from "../../lib/logger.js";
 import { randomUUID } from "node:crypto";
+import { writeFile, unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { isCliConfigured, runCliCapture } from "../../lib/cli.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Zod schemas
@@ -472,12 +476,10 @@ lifecycle.post("/:id/destroy", rateLimitStrict, requireRole("OPERATOR"), async (
       });
     }
 
-    // Mark as STOPPED (preserves audit trail)
-    const instance = await db.instance.update({
-      where: { id },
-      data: { status: "STOPPED", updated_at: new Date() },
-    });
+    // Destroy the instance's infrastructure via the Sindri CLI or direct Docker removal
+    await destroyInstanceInfra(existing.name, existing.provider);
 
+    // Record the destroy event before deletion
     await db.event.create({
       data: {
         instance_id: id,
@@ -490,16 +492,22 @@ lifecycle.post("/:id/destroy", rateLimitStrict, requireRole("OPERATOR"), async (
       },
     });
 
-    publishInstanceEvent(id, "destroy", { name: instance.name });
+    publishInstanceEvent(id, "destroy", { name: existing.name });
 
     await redis.srem("sindri:agents:active", id).catch(() => {});
 
-    logger.info({ instanceId: id, name: instance.name, backupId }, "Instance destroyed");
+    // Delete the instance record
+    await db.instance.delete({ where: { id } });
+
+    logger.info(
+      { instanceId: id, name: existing.name, backupId },
+      "Instance destroyed and deleted",
+    );
 
     return c.json({
       message: "Instance destroyed",
-      id: instance.id,
-      name: instance.name,
+      id,
+      name: existing.name,
       backupId: backupId ?? null,
     });
   } catch (err) {
@@ -708,10 +716,7 @@ lifecycle.post("/bulk-action", rateLimitStrict, requireRole("OPERATOR"), async (
               });
             }
 
-            const destroyed = await db.instance.update({
-              where: { id: instanceId },
-              data: { status: "STOPPED", updated_at: new Date() },
-            });
+            await destroyInstanceInfra(existing.name, existing.provider);
             await db.event.create({
               data: {
                 instance_id: instanceId,
@@ -725,8 +730,9 @@ lifecycle.post("/bulk-action", rateLimitStrict, requireRole("OPERATOR"), async (
               },
             });
             await redis.srem("sindri:agents:active", instanceId).catch(() => {});
-            publishInstanceEvent(instanceId, "destroy", { name: destroyed.name });
-            return { id: instanceId, name: destroyed.name, success: true, newStatus: "STOPPED" };
+            publishInstanceEvent(instanceId, "destroy", { name: existing.name });
+            await db.instance.delete({ where: { id: instanceId } });
+            return { id: instanceId, name: existing.name, success: true, newStatus: "DESTROYED" };
           }
 
           return { id: instanceId, name: existing.name, success: false, error: "Unknown action" };
@@ -777,6 +783,49 @@ lifecycle.post("/bulk-action", rateLimitStrict, requireRole("OPERATOR"), async (
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Destroy the instance's infrastructure using the Sindri CLI when available,
+ * falling back to direct Docker removal for Docker instances.
+ *
+ * The Sindri CLI handles provider-specific teardown:
+ *   - Docker: docker-compose down + volume cleanup
+ *   - Fly.io: fly apps destroy
+ *   - E2B:    sandbox delete
+ *   - K8s:    kubectl delete deployment
+ *   - RunPod: pod termination via API
+ *   - Northflank: service deletion via API
+ *   - DevPod: devpod delete
+ */
+async function destroyInstanceInfra(instanceName: string, provider: string): Promise<void> {
+  if (!isCliConfigured()) {
+    logger.warn(
+      { instanceName, provider },
+      "Sindri CLI not configured — cannot destroy infrastructure",
+    );
+    return;
+  }
+
+  let tmpFile: string | null = null;
+  try {
+    const minimalYaml = [
+      'version: "3.0"',
+      `name: ${instanceName}`,
+      "deployment:",
+      `  provider: ${provider}`,
+    ].join("\n");
+
+    tmpFile = join(tmpdir(), `sindri-destroy-${instanceName}-${Date.now()}.yaml`);
+    await writeFile(tmpFile, minimalYaml, "utf-8");
+
+    await runCliCapture(["destroy", "--force", "--config", tmpFile]);
+    logger.info({ instanceName, provider }, "Instance destroyed via Sindri CLI");
+  } catch (err) {
+    logger.warn({ err, instanceName, provider }, "Sindri CLI destroy failed");
+  } finally {
+    if (tmpFile) await unlink(tmpFile).catch(() => undefined);
+  }
+}
 
 function buildConfigYaml(instance: {
   id: string;

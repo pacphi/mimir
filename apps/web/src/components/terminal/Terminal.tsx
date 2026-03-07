@@ -58,7 +58,8 @@ export function Terminal({
 
     const xterm = new XTerm({
       theme: termTheme,
-      fontFamily: '"Cascadia Code", "Fira Code", "JetBrains Mono", "Consolas", monospace',
+      fontFamily:
+        '"CaskaydiaCove Nerd Font", "FiraCode Nerd Font", "JetBrainsMono Nerd Font", "Cascadia Code", "Fira Code", "JetBrains Mono", "Consolas", monospace',
       fontSize: 14,
       lineHeight: 1.2,
       cursorBlink: true,

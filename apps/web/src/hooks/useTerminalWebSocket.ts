@@ -24,6 +24,11 @@ export function useTerminalWebSocket({
   const reconnectCountRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isUnmountedRef = useRef(false);
+  // Stable refs to avoid re-creating the connect callback when these change
+  const onStatusChangeRef = useRef(onStatusChange);
+  onStatusChangeRef.current = onStatusChange;
+  const onReconnectRef = useRef(onReconnect);
+  onReconnectRef.current = onReconnect;
 
   const disconnect = useCallback(() => {
     if (reconnectTimerRef.current) {
@@ -44,7 +49,7 @@ export function useTerminalWebSocket({
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const url = `${protocol}//${window.location.host}/ws/terminal/${sessionId}`;
 
-    onStatusChange("connecting");
+    onStatusChangeRef.current("connecting");
 
     const ws = new WebSocket(url);
     ws.binaryType = "arraybuffer";
@@ -56,7 +61,7 @@ export function useTerminalWebSocket({
         return;
       }
       reconnectCountRef.current = 0;
-      onStatusChange("connected");
+      onStatusChangeRef.current("connected");
 
       // Send initial terminal size
       const { cols, rows } = terminal;
@@ -82,7 +87,7 @@ export function useTerminalWebSocket({
 
     ws.onerror = () => {
       if (isUnmountedRef.current) return;
-      onStatusChange("error");
+      onStatusChangeRef.current("error");
     };
 
     ws.onclose = (event) => {
@@ -91,25 +96,25 @@ export function useTerminalWebSocket({
       wsRef.current = null;
 
       if (event.wasClean) {
-        onStatusChange("disconnected");
+        onStatusChangeRef.current("disconnected");
         return;
       }
 
       // Attempt reconnection
       if (reconnectCountRef.current < maxReconnectAttempts) {
         reconnectCountRef.current++;
-        onStatusChange("connecting");
+        onStatusChangeRef.current("connecting");
         reconnectTimerRef.current = setTimeout(() => {
           if (!isUnmountedRef.current) {
-            onReconnect?.();
+            onReconnectRef.current?.();
             connectRef.current?.();
           }
         }, reconnectDelay * reconnectCountRef.current);
       } else {
-        onStatusChange("disconnected");
+        onStatusChangeRef.current("disconnected");
       }
     };
-  }, [sessionId, terminal, onStatusChange, onReconnect, maxReconnectAttempts, reconnectDelay]);
+  }, [sessionId, terminal, maxReconnectAttempts, reconnectDelay]);
 
   connectRef.current = connect;
 

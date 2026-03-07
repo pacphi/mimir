@@ -12,6 +12,7 @@ import { useDeploymentWizardStore } from "@/stores/deploymentWizardStore";
 import { isSystemVolumeConflict, SYSTEM_VOLUME_ERROR } from "@/lib/sindri-constraints";
 import { deploymentsApi } from "@/api/deployments";
 import { toApiProvider } from "@/types/provider-options";
+import { useAppConfig } from "@/hooks/useAppConfig";
 import { useState } from "react";
 
 const WIZARD_STEPS: WizardStep[] = [
@@ -80,6 +81,11 @@ interface GuidedWizardProps {
 
 export function GuidedWizard({ onCancel, cliAvailable = true }: GuidedWizardProps) {
   const store = useDeploymentWizardStore();
+  const { data: appConfig } = useAppConfig();
+  const imageDefaults = {
+    registry: appConfig?.sindriImageRegistry ?? "ghcr.io/pacphi/sindri",
+    version: appConfig?.sindriImageVersion ?? "latest",
+  };
   const [validationError, setValidationError] = useState<string | null>(null);
 
   function handleNext() {
@@ -100,7 +106,7 @@ export function GuidedWizard({ onCancel, cliAvailable = true }: GuidedWizardProp
 
   async function handleDeploy() {
     // Recompute YAML first
-    store.recomputeYaml();
+    store.recomputeYaml(imageDefaults);
     const storeState = useDeploymentWizardStore.getState();
 
     if (!storeState.provider || !storeState.name) {

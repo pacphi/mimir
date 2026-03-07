@@ -21,19 +21,11 @@ export function DeploymentPage() {
 
   return (
     <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Deployments</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Deploy and manage Sindri instances across providers
-          </p>
-        </div>
-        <Button onClick={() => setShowWizard(true)}>
-          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          New Deployment
-        </Button>
+      <div>
+        <h1 className="text-2xl font-semibold">Deployments</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Deploy and manage Sindri instances across providers
+        </p>
       </div>
 
       <div className="rounded-lg border border-dashed border-border p-12 text-center">

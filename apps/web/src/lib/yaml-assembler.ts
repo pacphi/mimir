@@ -21,10 +21,16 @@ export interface VolumeEntry {
   size: string;
 }
 
+export interface ImageDefaults {
+  registry: string;
+  version: string;
+}
+
 export interface AssemblerInput {
   name: string;
   provider: ProviderId;
   imageConfig: ImageConfig;
+  imageDefaults: ImageDefaults;
   volumes: VolumeEntry[];
   profileName: string | null;
   selectedExtensions: string[];
@@ -85,6 +91,25 @@ function renderInlineObject(obj: Record<string, unknown>): string {
   return `{ ${parts.join(", ")} }`;
 }
 
+/**
+ * Normalize provider options before YAML rendering.
+ * The Sindri CLI expects `dind` as a struct (DindConfig), not a boolean.
+ */
+function normalizeProviderOptions(
+  provider: string,
+  opts: Record<string, unknown>,
+): Record<string, unknown> {
+  if (provider !== "docker") return opts;
+
+  const normalized = { ...opts };
+  if (normalized.dind === true) {
+    normalized.dind = { enabled: true };
+  } else if (normalized.dind === false) {
+    delete normalized.dind;
+  }
+  return normalized;
+}
+
 export function assembleYaml(input: AssemblerInput): string {
   const apiProvider = toApiProvider(input.provider);
   const lines: string[] = [];
@@ -98,9 +123,11 @@ export function assembleYaml(input: AssemblerInput): string {
   lines.push("deployment:");
   lines.push(`  provider: ${apiProvider}`);
 
-  // Image config
+  // Image config — only emit when user has explicitly set image fields.
+  // When omitted, the API will use --from-source (dev) or inject defaults (prod).
   const img = input.imageConfig;
-  const hasImageConfig =
+  const imgDefaults = input.imageDefaults;
+  const hasExplicitImage =
     img.registry ||
     img.version ||
     img.tagOverride ||
@@ -108,10 +135,12 @@ export function assembleYaml(input: AssemblerInput): string {
     img.pullPolicy ||
     img.verifySignature ||
     img.verifyProvenance;
-  if (hasImageConfig) {
+  if (hasExplicitImage) {
     lines.push("  image_config:");
-    if (img.registry) lines.push(`    registry: ${yamlValue(img.registry)}`);
-    if (img.version) lines.push(`    version: ${yamlValue(img.version)}`);
+    lines.push(`    registry: ${yamlValue(img.registry || imgDefaults.registry)}`);
+    if (img.version || (!img.tagOverride && !img.digest)) {
+      lines.push(`    version: ${yamlValue(img.version || imgDefaults.version)}`);
+    }
     if (img.tagOverride) lines.push(`    tag_override: ${yamlValue(img.tagOverride)}`);
     if (img.digest) lines.push(`    digest: ${yamlValue(img.digest)}`);
     if (img.pullPolicy) lines.push(`    pull_policy: ${img.pullPolicy}`);
@@ -180,17 +209,20 @@ export function assembleYaml(input: AssemblerInput): string {
     lines.push("");
     lines.push("providers:");
 
+    // Normalize provider options — some fields need special handling
+    const normalizedOpts = normalizeProviderOptions(apiProvider, opts);
+
     if (devpodBackend) {
       lines.push("  devpod:");
       lines.push(`    type: ${devpodBackend}`);
       if (hasOpts) {
         lines.push(`    ${devpodBackend}:`);
-        lines.push(renderObject(opts, 3));
+        lines.push(renderObject(normalizedOpts, 3));
       }
     } else {
       lines.push(`  ${apiProvider}:`);
       if (hasOpts) {
-        lines.push(renderObject(opts, 2));
+        lines.push(renderObject(normalizedOpts, 2));
       }
     }
   }

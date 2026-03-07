@@ -16,6 +16,8 @@ interface DeploymentProgressProps {
   onComplete: (instanceId: string) => void;
   onError: (message: string) => void;
   onCancel: () => void;
+  onBackToWizard?: () => void;
+  onRetry?: () => void;
 }
 
 const STATUS_LABELS: Record<DeploymentStatus, string> = {
@@ -31,6 +33,8 @@ export function DeploymentProgress({
   onComplete,
   onError,
   onCancel,
+  onBackToWizard,
+  onRetry,
 }: DeploymentProgressProps) {
   const [status, setStatus] = useState<DeploymentStatus>("PENDING");
   const [progress, setProgress] = useState(0);
@@ -53,12 +57,15 @@ export function DeploymentProgress({
   }, [logs]);
 
   useEffect(() => {
+    let intentionalClose = false;
+
     const url = getDeploymentWebSocketUrl(deploymentId);
     const ws = new WebSocket(url);
     wsRef.current = ws;
 
     ws.addEventListener("open", () => {
       setConnected(true);
+      setLogs([]);
       addLog("Connected to deployment stream");
     });
 
@@ -95,16 +102,19 @@ export function DeploymentProgress({
     });
 
     ws.addEventListener("close", () => {
+      if (intentionalClose) return;
       setConnected(false);
       addLog("Disconnected from deployment stream");
     });
 
     ws.addEventListener("error", () => {
+      if (intentionalClose) return;
       setConnected(false);
       addLog("Connection error", "error");
     });
 
     return () => {
+      intentionalClose = true;
       ws.close();
     };
   }, [deploymentId, addLog]);
@@ -164,7 +174,7 @@ export function DeploymentProgress({
           <CardTitle className="text-sm">Deployment Logs</CardTitle>
         </CardHeader>
         <CardContent className="pt-0">
-          <div className="bg-black rounded-md p-3 h-48 overflow-y-auto font-mono text-xs">
+          <div className="bg-black rounded-md p-3 h-64 overflow-y-auto font-mono text-xs">
             {logs.length === 0 ? (
               <p className="text-muted-foreground">Waiting for events...</p>
             ) : (
@@ -175,6 +185,7 @@ export function DeploymentProgress({
                   </span>
                   <span
                     className={cn(
+                      "whitespace-pre-wrap break-all",
                       entry.type === "error" && "text-red-400",
                       entry.type === "success" && "text-green-400",
                       entry.type === "info" && "text-gray-300",
@@ -195,6 +206,17 @@ export function DeploymentProgress({
           <Button variant="outline" onClick={onCancel}>
             Cancel Deployment
           </Button>
+        </div>
+      )}
+
+      {status === "FAILED" && (
+        <div className="flex justify-end gap-3">
+          {onBackToWizard && (
+            <Button variant="outline" onClick={onBackToWizard}>
+              Back to Configuration
+            </Button>
+          )}
+          {onRetry && <Button onClick={onRetry}>Retry Deployment</Button>}
         </div>
       )}
     </div>

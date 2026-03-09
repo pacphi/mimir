@@ -44,7 +44,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/node": "^25.3.3",
+    "@types/node": "^25.3.5",
     "@types/pg": "^8.18.0",
     "@types/ws": "^8.5.14",
     "@vitest/coverage-v8": "^4.0.0",

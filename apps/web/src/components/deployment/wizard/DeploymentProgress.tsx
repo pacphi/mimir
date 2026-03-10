@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { getDeploymentWebSocketUrl } from "@/api/deployments";
+import { getDeploymentWebSocketUrl, deploymentsApi } from "@/api/deployments";
 import type { DeploymentProgressEvent, DeploymentStatus } from "@/types/deployment";
 
 interface ProgressLogEntry {
@@ -42,6 +42,7 @@ export function DeploymentProgress({
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const finalizedRef = useRef(false);
   // Stable refs so the WebSocket effect doesn't re-run when callbacks change
   const onCompleteRef = useRef(onComplete);
   onCompleteRef.current = onComplete;
@@ -52,72 +53,137 @@ export function DeploymentProgress({
     setLogs((prev) => [...prev, { timestamp: new Date(), message, type }]);
   }, []);
 
+  const handleFinalStatus = useCallback(
+    (data: { status?: string; instance_id?: string; message?: string; type?: string }) => {
+      if (finalizedRef.current) return;
+
+      if (data.status === "SUCCEEDED" && data.instance_id) {
+        finalizedRef.current = true;
+        addLog(data.message ?? "Instance is online and ready", "success");
+        setProgress(100);
+        setStatus("SUCCEEDED");
+        onCompleteRef.current(data.instance_id);
+      } else if (data.status === "FAILED" || data.type === "error") {
+        finalizedRef.current = true;
+        addLog(data.message ?? "Deployment failed", "error");
+        setStatus("FAILED");
+        onErrorRef.current(data.message ?? "Deployment failed");
+      }
+    },
+    [addLog],
+  );
+
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logs]);
 
+  // ── WebSocket connection with reconnect ──────────────────────────────────
   useEffect(() => {
     let intentionalClose = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT = 3;
 
-    const url = getDeploymentWebSocketUrl(deploymentId);
-    const ws = new WebSocket(url);
-    wsRef.current = ws;
+    function connect() {
+      if (intentionalClose || finalizedRef.current) return;
+      const url = getDeploymentWebSocketUrl(deploymentId);
+      const ws = new WebSocket(url);
+      wsRef.current = ws;
 
-    ws.addEventListener("open", () => {
-      setConnected(true);
-      setLogs([]);
-      addLog("Connected to deployment stream");
-    });
+      ws.addEventListener("open", () => {
+        setConnected(true);
+        reconnectAttempts = 0;
+        addLog("Connected to deployment stream");
+      });
 
-    ws.addEventListener("message", (event: MessageEvent) => {
-      let data: DeploymentProgressEvent;
-      try {
-        data = JSON.parse(event.data as string) as DeploymentProgressEvent;
-      } catch {
-        addLog(`Received: ${event.data as string}`);
-        return;
-      }
+      ws.addEventListener("message", (event: MessageEvent) => {
+        let data: DeploymentProgressEvent;
+        try {
+          data = JSON.parse(event.data as string) as DeploymentProgressEvent;
+        } catch {
+          addLog(`Received: ${event.data as string}`);
+          return;
+        }
 
-      addLog(data.message, data.type === "error" ? "error" : "info");
+        addLog(data.message, data.type === "error" ? "error" : "info");
 
-      if (data.status) {
-        setStatus(data.status);
-      }
+        if (data.status) {
+          setStatus(data.status as DeploymentStatus);
+        }
+        if (data.progress_percent !== undefined) {
+          setProgress(data.progress_percent);
+        }
 
-      if (data.progress_percent !== undefined) {
-        setProgress(data.progress_percent);
-      }
+        handleFinalStatus(data);
+      });
 
-      if (data.type === "complete" && data.instance_id) {
-        addLog("Deployment complete!", "success");
-        setProgress(100);
-        setStatus("SUCCEEDED");
-        onCompleteRef.current(data.instance_id);
-      }
+      ws.addEventListener("close", () => {
+        if (intentionalClose || finalizedRef.current) return;
+        setConnected(false);
+        if (reconnectAttempts < MAX_RECONNECT) {
+          reconnectAttempts++;
+          reconnectTimer = setTimeout(connect, 2000 * reconnectAttempts);
+        }
+      });
 
-      if (data.type === "error") {
-        setStatus("FAILED");
-        onErrorRef.current(data.message);
-      }
-    });
+      ws.addEventListener("error", () => {
+        if (intentionalClose || finalizedRef.current) return;
+        ws.close();
+      });
+    }
 
-    ws.addEventListener("close", () => {
-      if (intentionalClose) return;
-      setConnected(false);
-      addLog("Disconnected from deployment stream");
-    });
-
-    ws.addEventListener("error", () => {
-      if (intentionalClose) return;
-      setConnected(false);
-      addLog("Connection error", "error");
-    });
+    connect();
 
     return () => {
       intentionalClose = true;
-      ws.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      wsRef.current?.close();
     };
-  }, [deploymentId, addLog]);
+  }, [deploymentId, addLog, handleFinalStatus]);
+
+  // ── REST polling fallback ────────────────────────────────────────────────
+  // Polls the deployment status every 3s as a fallback when WS is unreliable.
+  // Stops when a final status is reached.
+  useEffect(() => {
+    const poll = setInterval(async () => {
+      if (finalizedRef.current) {
+        clearInterval(poll);
+        return;
+      }
+
+      try {
+        const deployment = await deploymentsApi.get(deploymentId);
+        if (!deployment) return;
+
+        const depStatus = deployment.status as DeploymentStatus;
+
+        // Update progress bar for intermediate states
+        if (depStatus === "IN_PROGRESS" && status === "PENDING") {
+          setStatus("IN_PROGRESS");
+          setProgress(40);
+          addLog("Deployment in progress...");
+        }
+
+        if (depStatus === "SUCCEEDED" && deployment.instance_id) {
+          handleFinalStatus({
+            status: "SUCCEEDED",
+            instance_id: deployment.instance_id,
+            message: "Instance is online and ready",
+          });
+        } else if (depStatus === "FAILED") {
+          handleFinalStatus({
+            status: "FAILED",
+            type: "error",
+            message: deployment.error ?? "Deployment failed",
+          });
+        }
+      } catch {
+        // Polling failure is not critical — WS or next poll will catch up
+      }
+    }, 3000);
+
+    return () => clearInterval(poll);
+  }, [deploymentId, status, addLog, handleFinalStatus]);
 
   const isFinal = status === "SUCCEEDED" || status === "FAILED" || status === "CANCELLED";
 
@@ -135,7 +201,7 @@ export function DeploymentProgress({
                 )}
               />
               <span className="text-xs text-muted-foreground">
-                {connected ? "Live" : "Disconnected"}
+                {connected ? "Live" : "Polling"}
               </span>
             </div>
           </div>

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { TimeRange } from "@/types/metrics";
+import { useMetricsStream } from "@/hooks/useMetrics";
 import { MetricsCharts } from "./MetricsCharts";
 import { NetworkChart } from "./NetworkChart";
 import { ProcessTree } from "./ProcessTree";
@@ -15,6 +16,8 @@ interface InstanceDashboardProps {
 
 export function InstanceDashboard({ instanceId, className }: InstanceDashboardProps) {
   const [timeRange, setTimeRange] = useState<TimeRange>("1h");
+  // Single WebSocket connection shared by MetricsCharts and NetworkChart
+  const realtimePoints = useMetricsStream(instanceId);
 
   return (
     <div className={cn("space-y-4", className)}>
@@ -27,10 +30,14 @@ export function InstanceDashboard({ instanceId, className }: InstanceDashboardPr
       </div>
 
       {/* CPU / Memory / Disk charts */}
-      <MetricsCharts instanceId={instanceId} timeRange={timeRange} />
+      <MetricsCharts
+        instanceId={instanceId}
+        timeRange={timeRange}
+        realtimePoints={realtimePoints}
+      />
 
       {/* Network traffic chart */}
-      <NetworkChart instanceId={instanceId} timeRange={timeRange} />
+      <NetworkChart instanceId={instanceId} timeRange={timeRange} realtimePoints={realtimePoints} />
 
       {/* Process list and extension health side by side on large screens */}
       <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">

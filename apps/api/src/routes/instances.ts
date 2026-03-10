@@ -80,7 +80,16 @@ const ListInstancesQuerySchema = z.object({
     ])
     .optional(),
   status: z
-    .enum(["RUNNING", "STOPPED", "DEPLOYING", "DESTROYING", "SUSPENDED", "ERROR", "UNKNOWN"])
+    .enum([
+      "RUNNING",
+      "STOPPED",
+      "DEPLOYING",
+      "DESTROYING",
+      "DESTROYED",
+      "SUSPENDED",
+      "ERROR",
+      "UNKNOWN",
+    ])
     .optional(),
   region: z.string().max(64).optional(),
   page: z.coerce.number().int().min(1).default(1),

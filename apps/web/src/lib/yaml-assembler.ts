@@ -31,8 +31,10 @@ export interface AssemblerInput {
   provider: ProviderId;
   imageConfig: ImageConfig;
   imageDefaults: ImageDefaults;
+  homeDataSizeGb: number;
   volumes: VolumeEntry[];
   profileName: string | null;
+  profileExtensions: string[];
   selectedExtensions: string[];
   region: string;
   vmSize: string;
@@ -155,15 +157,15 @@ export function assembleYaml(input: AssemblerInput): string {
     if (input.vcpus) lines.push(`    cpus: ${input.vcpus}`);
   }
 
-  // Volumes
-  if (input.volumes.length > 0) {
-    lines.push("  volumes:");
-    for (const vol of input.volumes) {
-      if (!vol.name) continue;
-      lines.push(`    ${vol.name}:`);
-      if (vol.path) lines.push(`      path: ${yamlValue(vol.path)}`);
-      if (vol.size) lines.push(`      size: ${yamlValue(vol.size)}`);
-    }
+  // Volumes — always include home_data, plus any user-defined volumes
+  lines.push("  volumes:");
+  lines.push("    home_data:");
+  lines.push(`      size: "${input.homeDataSizeGb}GB"`);
+  for (const vol of input.volumes) {
+    if (!vol.name) continue;
+    lines.push(`    ${vol.name}:`);
+    if (vol.path) lines.push(`      path: ${yamlValue(vol.path)}`);
+    if (vol.size) lines.push(`      size: ${yamlValue(vol.size)}`);
   }
 
   lines.push("");
@@ -172,13 +174,12 @@ export function assembleYaml(input: AssemblerInput): string {
   lines.push("extensions:");
   if (input.profileName) {
     lines.push(`  profile: ${input.profileName}`);
-    const profileExtras = input.selectedExtensions.filter(
-      (ext) => ext !== "draupnir", // draupnir always included
+    const additional = input.selectedExtensions.filter(
+      (ext) => !input.profileExtensions.includes(ext),
     );
-    // We include additional extensions that aren't part of the profile
-    if (profileExtras.length > 0) {
+    if (additional.length > 0) {
       lines.push("  additional:");
-      for (const ext of profileExtras) {
+      for (const ext of additional.sort()) {
         lines.push(`    - ${ext}`);
       }
     }
@@ -189,6 +190,7 @@ export function assembleYaml(input: AssemblerInput): string {
       lines.push(`    - ${ext}`);
     }
   }
+  lines.push("  auto_install: true");
 
   // Secrets
   if (input.secrets.length > 0) {

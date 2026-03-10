@@ -12,9 +12,11 @@ interface InstanceCardProps {
 }
 
 export function InstanceCard({ instance, className, onClick }: InstanceCardProps) {
-  const hb = instance.latest_heartbeat;
-  const memoryPercent = hb ? (Number(hb.memory_used) / Number(hb.memory_total)) * 100 : null;
-  const diskPercent = hb ? (Number(hb.disk_used) / Number(hb.disk_total)) * 100 : null;
+  const hb = instance.lastHeartbeat;
+  const memoryPercent = hb
+    ? (Number(hb.memoryUsedBytes) / Number(hb.memoryTotalBytes)) * 100
+    : null;
+  const diskPercent = hb ? (Number(hb.diskUsedBytes) / Number(hb.diskTotalBytes)) * 100 : null;
 
   return (
     <article
@@ -68,7 +70,7 @@ export function InstanceCard({ instance, className, onClick }: InstanceCardProps
         {hb && (
           <span className="flex items-center gap-1">
             <Clock className="h-3 w-3" />
-            up {formatUptime(Number(hb.uptime))}
+            up {formatUptime(Number(hb.uptimeSeconds))}
           </span>
         )}
       </div>
@@ -76,17 +78,17 @@ export function InstanceCard({ instance, className, onClick }: InstanceCardProps
       {/* Metrics */}
       {hb && instance.status === "RUNNING" && (
         <div className="mt-3 space-y-1.5">
-          <MetricsGauge label="CPU" value={hb.cpu_percent} size="sm" />
+          <MetricsGauge label="CPU" value={hb.cpuPercent} size="sm" />
           {memoryPercent !== null && (
             <MetricsGauge
-              label={`RAM ${formatBytes(Number(hb.memory_used))} / ${formatBytes(Number(hb.memory_total))}`}
+              label={`RAM ${formatBytes(Number(hb.memoryUsedBytes))} / ${formatBytes(Number(hb.memoryTotalBytes))}`}
               value={memoryPercent}
               size="sm"
             />
           )}
           {diskPercent !== null && (
             <MetricsGauge
-              label={`Disk ${formatBytes(Number(hb.disk_used))} / ${formatBytes(Number(hb.disk_total))}`}
+              label={`Disk ${formatBytes(Number(hb.diskUsedBytes))} / ${formatBytes(Number(hb.diskTotalBytes))}`}
               value={diskPercent}
               size="sm"
             />
@@ -106,7 +108,7 @@ export function InstanceCard({ instance, className, onClick }: InstanceCardProps
 
       {/* Footer */}
       <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
-        <span>Updated {formatRelativeTime(instance.updated_at)}</span>
+        <span>Updated {formatRelativeTime(instance.updatedAt)}</span>
         {hb && <span>Last heartbeat {formatRelativeTime(hb.timestamp)}</span>}
       </div>
     </article>

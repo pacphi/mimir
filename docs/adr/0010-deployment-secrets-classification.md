@@ -2,6 +2,7 @@
 
 **Date:** 2026-03-03
 **Status:** Accepted
+**Extended by:** [ADR 0014 — Vault-Backed Deployment Secrets Lifecycle](0014-vault-backed-deployment-secrets.md)
 
 ---
 

@@ -9,7 +9,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import type { TimeRange, MetricsDataPoint } from "@/types/metrics";
-import { useMetricsTimeSeries, useMetricsStream } from "@/hooks/useMetrics";
+import { useMetricsTimeSeries, type RealtimePoints } from "@/hooks/useMetrics";
 import {
   TIME_RANGE_CONFIGS,
   CHART_COLORS,
@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 interface MetricsChartsProps {
   instanceId: string;
   timeRange: TimeRange;
+  realtimePoints: RealtimePoints;
   className?: string;
 }
 
@@ -154,9 +155,13 @@ function SingleChart({ title, data, color, unit, resolution, isLoading }: Single
   );
 }
 
-export function MetricsCharts({ instanceId, timeRange, className }: MetricsChartsProps) {
+export function MetricsCharts({
+  instanceId,
+  timeRange,
+  realtimePoints,
+  className,
+}: MetricsChartsProps) {
   const { data: historical, isLoading } = useMetricsTimeSeries(instanceId, timeRange);
-  const realtimePoints = useMetricsStream(instanceId);
 
   const config = TIME_RANGE_CONFIGS[timeRange];
 

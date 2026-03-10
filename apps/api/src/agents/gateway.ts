@@ -17,7 +17,7 @@
 
 import { WebSocketServer, WebSocket } from "ws";
 import type { IncomingMessage, Server } from "http";
-import { Prisma } from "@prisma/client";
+import { Prisma, type EventType } from "@prisma/client";
 import pty from "node-pty";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -244,12 +244,22 @@ async function routeAgentMessage(conn: AgentConnection, raw: string): Promise<vo
           metricsData.netPacketsRecv != null ? BigInt(metricsData.netPacketsRecv) : undefined,
       });
 
-      // Forward raw metrics envelope to Redis for real-time fan-out to browser clients
+      // Publish a flat metrics:snapshot message for browser consumption
+      // (matches the MetricsStreamMessage interface the frontend expects)
+      const snapshot = {
+        type: "metrics:snapshot",
+        instance_id: conn.instanceId,
+        ts: metricsData.ts ?? Date.now(),
+        cpu_percent: metricsData.cpuPercent ?? 0,
+        memory_used: metricsData.memUsed ?? 0,
+        memory_total: metricsData.memTotal ?? 0,
+        disk_used: metricsData.diskUsed ?? 0,
+        disk_total: metricsData.diskTotal ?? 0,
+        network_bytes_in: metricsData.netBytesRecv ?? 0,
+        network_bytes_out: metricsData.netBytesSent ?? 0,
+      };
       await redis
-        .publish(
-          REDIS_CHANNELS.instanceMetrics(conn.instanceId),
-          JSON.stringify({ ...envelope, instanceId: conn.instanceId }),
-        )
+        .publish(REDIS_CHANNELS.instanceMetrics(conn.instanceId), JSON.stringify(snapshot))
         .catch((err: unknown) => logger.warn({ err }, "Failed to publish metrics"));
       break;
     }
@@ -332,24 +342,47 @@ async function routeAgentMessage(conn: AgentConnection, raw: string): Promise<vo
       break;
     }
 
-    case CHANNEL.EVENTS:
+    case CHANNEL.EVENTS: {
       await redis
         .publish(
           REDIS_CHANNELS.instanceEvents(conn.instanceId),
           JSON.stringify({ ...envelope, instanceId: conn.instanceId }),
         )
         .catch((err: unknown) => logger.warn({ err }, "Failed to publish event"));
-      // Persist the event
+
+      // Map the event type from the payload to a valid EventType enum value
+      const eventData = data as { eventType?: string; type?: string; [k: string]: unknown } | null;
+      const rawEventType = (eventData?.eventType ?? eventData?.type ?? type ?? "").toUpperCase();
+
+      const EVENT_TYPE_MAP: Record<string, EventType> = {
+        DEPLOY: "DEPLOY",
+        REDEPLOY: "REDEPLOY",
+        CONNECT: "CONNECT",
+        DISCONNECT: "DISCONNECT",
+        BACKUP: "BACKUP",
+        RESTORE: "RESTORE",
+        DESTROY: "DESTROY",
+        SUSPEND: "SUSPEND",
+        RESUME: "RESUME",
+        EXTENSION_INSTALL: "EXTENSION_INSTALL",
+        EXTENSION_REMOVE: "EXTENSION_REMOVE",
+        HEARTBEAT_LOST: "HEARTBEAT_LOST",
+        HEARTBEAT_RECOVERED: "HEARTBEAT_RECOVERED",
+        ERROR: "ERROR",
+      };
+      const mappedEventType: EventType = EVENT_TYPE_MAP[rawEventType] ?? "DEPLOY";
+
       db.event
         .create({
           data: {
             instance_id: conn.instanceId,
-            event_type: "DEPLOY", // fallback; real impl maps eventType → EventType enum
+            event_type: mappedEventType,
             metadata: (data ?? Prisma.JsonNull) as Prisma.InputJsonValue,
           },
         })
         .catch((err: unknown) => logger.warn({ err }, "Failed to persist event"));
       break;
+    }
 
     case CHANNEL.TERMINAL:
       // Forward terminal data to browser clients subscribed to this instance
@@ -669,7 +702,8 @@ export function attachWebSocketGateway(server: Server): WebSocketServer {
     }
 
     // Route main gateway (agents + browser clients)
-    if (pathname === "/ws") {
+    // Draupnir agent connects to /ws/agent; browser clients to /ws
+    if (pathname === "/ws" || pathname === "/ws/agent") {
       wss.handleUpgrade(req, socket, head, (ws) => {
         wss.emit("connection", ws, req);
       });

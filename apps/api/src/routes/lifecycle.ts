@@ -292,9 +292,9 @@ function getAvailableActions(status: string): string[] {
     case "SUSPENDED":
       return ["resume", "destroy", "backup"];
     case "STOPPED":
-      return ["resume", "destroy"];
+      return ["destroy"];
     case "ERROR":
-      return ["resume", "destroy"];
+      return ["destroy"];
     default:
       return [];
   }

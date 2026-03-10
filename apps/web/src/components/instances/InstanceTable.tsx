@@ -75,8 +75,10 @@ export function InstanceTable({
         </thead>
         <tbody>
           {instances.map((instance, idx) => {
-            const hb = instance.latest_heartbeat;
-            const memPercent = hb ? (Number(hb.memory_used) / Number(hb.memory_total)) * 100 : null;
+            const hb = instance.lastHeartbeat;
+            const memPercent = hb
+              ? (Number(hb.memoryUsedBytes) / Number(hb.memoryTotalBytes)) * 100
+              : null;
             const isSelected = selectedIds?.has(instance.id) ?? false;
 
             return (
@@ -155,7 +157,7 @@ export function InstanceTable({
                 {/* CPU */}
                 <td className="h-14 px-4 hidden lg:table-cell">
                   {hb && instance.status === "RUNNING" ? (
-                    <MetricsGauge label="" value={hb.cpu_percent} size="sm" className="w-24" />
+                    <MetricsGauge label="" value={hb.cpuPercent} size="sm" className="w-24" />
                   ) : (
                     <span className="text-muted-foreground/50">&mdash;</span>
                   )}
@@ -172,7 +174,7 @@ export function InstanceTable({
 
                 {/* Updated */}
                 <td className="h-14 px-4 hidden xl:table-cell text-muted-foreground text-xs">
-                  {formatRelativeTime(instance.updated_at)}
+                  {formatRelativeTime(instance.updatedAt)}
                 </td>
 
                 {/* Row actions */}

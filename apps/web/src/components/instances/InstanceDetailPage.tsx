@@ -38,7 +38,7 @@ export function InstanceDetailPage() {
     );
   }
 
-  const hb = instance.latest_heartbeat;
+  const hb = instance.lastHeartbeat;
 
   return (
     <div className="p-6 space-y-6">
@@ -87,7 +87,9 @@ export function InstanceDetailPage() {
             <CardTitle className="text-sm font-medium">Uptime</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-lg font-semibold">{hb ? formatUptime(hb.uptime) : "N/A"}</div>
+            <div className="text-lg font-semibold">
+              {hb ? formatUptime(Number(hb.uptimeSeconds)) : "N/A"}
+            </div>
           </CardContent>
         </Card>
 
@@ -109,14 +111,22 @@ export function InstanceDetailPage() {
           </CardHeader>
           <CardContent>
             <div className="grid gap-6 grid-cols-1 sm:grid-cols-3">
-              <MetricsGauge label="CPU" value={hb.cpu_percent} />
+              <MetricsGauge label="CPU" value={hb.cpuPercent} />
               <MetricsGauge
                 label="Memory"
-                value={hb.memory_total > 0 ? (hb.memory_used / hb.memory_total) * 100 : 0}
+                value={
+                  Number(hb.memoryTotalBytes) > 0
+                    ? (Number(hb.memoryUsedBytes) / Number(hb.memoryTotalBytes)) * 100
+                    : 0
+                }
               />
               <MetricsGauge
                 label="Disk"
-                value={hb.disk_total > 0 ? (hb.disk_used / hb.disk_total) * 100 : 0}
+                value={
+                  Number(hb.diskTotalBytes) > 0
+                    ? (Number(hb.diskUsedBytes) / Number(hb.diskTotalBytes)) * 100
+                    : 0
+                }
               />
             </div>
           </CardContent>
@@ -157,7 +167,7 @@ export function InstanceDetailPage() {
       )}
 
       <div className="text-xs text-muted-foreground">
-        Last updated: {formatRelativeTime(instance.updated_at)}
+        Last updated: {formatRelativeTime(instance.updatedAt)}
       </div>
     </div>
   );

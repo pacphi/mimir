@@ -3,20 +3,19 @@ export type InstanceStatus =
   | "STOPPED"
   | "DEPLOYING"
   | "DESTROYING"
+  | "DESTROYED"
   | "SUSPENDED"
   | "ERROR"
   | "UNKNOWN";
 
 export interface Heartbeat {
-  id: string;
-  instance_id: string;
+  cpuPercent: number;
+  memoryUsedBytes: string;
+  memoryTotalBytes: string;
+  diskUsedBytes: string;
+  diskTotalBytes: string;
+  uptimeSeconds: string;
   timestamp: string;
-  cpu_percent: number;
-  memory_used: number;
-  memory_total: number;
-  disk_used: number;
-  disk_total: number;
-  uptime: number;
 }
 
 export interface Instance {
@@ -25,19 +24,22 @@ export interface Instance {
   provider: string;
   region: string | null;
   extensions: string[];
-  config_hash: string | null;
-  ssh_endpoint: string | null;
+  configHash: string | null;
+  sshEndpoint: string | null;
   status: InstanceStatus;
-  created_at: string;
-  updated_at: string;
-  latest_heartbeat?: Heartbeat | null;
+  createdAt: string;
+  updatedAt: string;
+  lastHeartbeat?: Heartbeat | null;
 }
 
 export interface InstanceListResponse {
   instances: Instance[];
-  total: number;
-  page: number;
-  per_page: number;
+  pagination: {
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+  };
 }
 
 export interface InstanceFilters {
@@ -55,13 +57,13 @@ export interface WebSocketMessage {
 export interface InstanceUpdateMessage extends WebSocketMessage {
   type: "instance_update";
   payload: {
-    instance_id: string;
+    instanceId: string;
     status: InstanceStatus;
-    updated_at: string;
+    updatedAt: string;
   };
 }
 
 export interface HeartbeatMessage extends WebSocketMessage {
   type: "heartbeat";
-  payload: Heartbeat;
+  payload: Heartbeat & { instanceId: string };
 }

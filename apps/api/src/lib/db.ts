@@ -14,7 +14,12 @@ import { logger } from "./logger.js";
 import { getDatabaseUrl } from "./env.js";
 
 function createAdapter() {
-  return new PrismaPg({ connectionString: getDatabaseUrl() });
+  return new PrismaPg({
+    connectionString: getDatabaseUrl(),
+    min: 2, // keep warm connections to avoid cold-start latency
+    max: 10,
+    idleTimeoutMillis: 60_000,
+  });
 }
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
@@ -43,7 +48,7 @@ if (process.env.NODE_ENV === "development") {
       $on: (event: string, cb: (e: { duration: number; query: string }) => void) => void;
     }
   ).$on("query", (e) => {
-    if (e.duration > 100) {
+    if (e.duration > 500) {
       logger.warn({ duration: e.duration, query: e.query }, "Slow query detected");
     }
   });

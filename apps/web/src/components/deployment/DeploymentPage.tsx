@@ -2,12 +2,16 @@ import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { DeploymentWizard } from "./wizard";
+import { useDeploymentWizardStore } from "@/stores/deploymentWizardStore";
 
 export function DeploymentPage() {
   const navigate = useNavigate();
   const [showWizard, setShowWizard] = useState(false);
+  const resetWizard = useDeploymentWizardStore((s) => s.reset);
 
   function handleDeployed(instanceId: string) {
+    // Reset wizard state before navigating so the next deploy starts fresh
+    resetWizard();
     void navigate({ to: "/instances/$id", params: { id: instanceId } });
   }
 

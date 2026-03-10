@@ -9,7 +9,12 @@ import { Step5Secrets } from "./guided/Step5Secrets";
 import { Step6ProviderOptions } from "./guided/Step6ProviderOptions";
 import { Step7Review } from "./guided/Step7Review";
 import { useDeploymentWizardStore } from "@/stores/deploymentWizardStore";
-import { isSystemVolumeConflict, SYSTEM_VOLUME_ERROR } from "@/lib/sindri-constraints";
+import {
+  isSystemVolumeConflict,
+  SYSTEM_VOLUME_ERROR,
+  HOME_DATA_MIN_SIZE_GB,
+  VOLUME_MIN_SIZE_GB,
+} from "@/lib/sindri-constraints";
 import { deploymentsApi } from "@/api/deployments";
 import { toApiProvider } from "@/types/provider-options";
 import { useAppConfig } from "@/hooks/useAppConfig";
@@ -39,16 +44,25 @@ function validateStep(
       return null;
     }
     case 2: {
-      // Image & volumes — all optional
+      // Image & volumes
       if (store.imageConfig.registry && !/^[\w./:@-]+$/.test(store.imageConfig.registry)) {
         return "Registry must be a valid URL or image path";
       }
       if (store.imageConfig.digest && !/^sha256:[a-f0-9]{64}$/.test(store.imageConfig.digest)) {
         return "Digest must match sha256:<64 hex chars> format";
       }
+      if (store.homeDataSizeGb < HOME_DATA_MIN_SIZE_GB) {
+        return `home_data volume must be at least ${HOME_DATA_MIN_SIZE_GB}GB`;
+      }
       for (const vol of store.volumes) {
         if (isSystemVolumeConflict(vol.path)) {
           return SYSTEM_VOLUME_ERROR;
+        }
+        if (vol.size) {
+          const sizeNum = parseInt(vol.size, 10);
+          if (!isNaN(sizeNum) && sizeNum < VOLUME_MIN_SIZE_GB) {
+            return `Volume "${vol.name || "unnamed"}" must be at least ${VOLUME_MIN_SIZE_GB}GB`;
+          }
         }
       }
       return null;
@@ -183,7 +197,14 @@ export function GuidedWizard({ onCancel, cliAvailable = true }: GuidedWizardProp
         </Button>
       </div>
 
-      <WizardStepper steps={WIZARD_STEPS} currentStep={store.currentStep} />
+      <WizardStepper
+        steps={WIZARD_STEPS}
+        currentStep={store.currentStep}
+        onStepClick={(stepId) => {
+          setValidationError(null);
+          store.setStep(stepId);
+        }}
+      />
 
       <Card>
         <CardHeader className="pb-4">

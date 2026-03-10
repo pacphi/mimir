@@ -5,19 +5,19 @@
 services:
   sindri:
     image: sindri:latest
-    container_name: sindri-dev01
+    container_name: sindri-dev04
 
     volumes:
-      - sindri-dev01_home:/alt/home/developer
+      - sindri-dev04_home:/alt/home/developer
 
     env_file:
       - .env.secrets
 
     environment:
       - INIT_WORKSPACE=true
-      - INSTALL_PROFILE=anthropic-dev
+      - INSTALL_PROFILE=
 
-      - ADDITIONAL_EXTENSIONS=agent-browser,agent-manager,agent-skills-cli,agentic-qe,ai-toolkit,claude-cli,claude-marketplace,claudish,cloud-tools,compahook,golang,infra-tools,jvm,kilo,linear-mcp,mdflow,nodejs-devtools,notebooklm-mcp-cli,ollama,openskills,pal-mcp-server,playwright,ralph,ruflo,rust,ruvector-cli,ruvnet-research,rvf-cli,supabase-cli,tmux-workspace
+      - CUSTOM_EXTENSIONS=agent-skills-cli,agentic-qe,claude-cli,draupnir,github-cli,gitnexus,golang,linear-mcp,mise-config,nodejs,notebooklm-mcp-cli,openfang,p-replicator,ruflo,rust,ruvector-cli,rvf-cli
 
       - SKIP_AUTO_INSTALL=false
 
@@ -45,5 +45,5 @@ services:
     tty: true
 
 volumes:
-  sindri-dev01_home:
+  sindri-dev04_home:
     driver: local

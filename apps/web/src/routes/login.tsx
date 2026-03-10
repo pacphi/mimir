@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Mail, Github, Loader2 } from "lucide-react";
 
+const DASHBOARD_URL = `${window.location.origin}/dashboard`;
+
 export const Route = createFileRoute("/login")({
   component: LoginPage,
 });
@@ -25,7 +27,7 @@ function LoginPage() {
     try {
       await signIn.social({
         provider: "github",
-        callbackURL: "/dashboard",
+        callbackURL: DASHBOARD_URL,
       });
     } catch {
       setError("Failed to initiate GitHub sign-in. Please try again.");
@@ -39,7 +41,7 @@ function LoginPage() {
     try {
       await signIn.social({
         provider: "google",
-        callbackURL: "/dashboard",
+        callbackURL: DASHBOARD_URL,
       });
     } catch {
       setError("Failed to initiate Google sign-in. Please try again.");
@@ -56,7 +58,7 @@ function LoginPage() {
     try {
       await authClient.signIn.magicLink({
         email: email.trim(),
-        callbackURL: "/dashboard",
+        callbackURL: DASHBOARD_URL,
       });
       navigate({ to: "/auth/magic-link-sent", search: { email: email.trim() } });
     } catch {

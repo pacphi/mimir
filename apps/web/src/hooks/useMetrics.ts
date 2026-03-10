@@ -25,7 +25,7 @@ export function useInstanceEvents(instanceId: string, limit = 50) {
 
 const MAX_REALTIME_POINTS = 300; // ~5 min at 1s intervals
 
-type RealtimePoints = {
+export type RealtimePoints = {
   cpu: MetricsDataPoint[];
   memory: MetricsDataPoint[];
   disk: MetricsDataPoint[];
@@ -109,7 +109,15 @@ export function useMetricsStream(instanceId: string) {
   );
 
   const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    const existing = wsRef.current;
+    if (existing?.readyState === WebSocket.OPEN || existing?.readyState === WebSocket.CONNECTING) {
+      return;
+    }
+    // Clean up any lingering connection
+    if (existing) {
+      existing.close();
+      wsRef.current = null;
+    }
 
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(

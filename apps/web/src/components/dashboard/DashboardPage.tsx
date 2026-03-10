@@ -38,7 +38,7 @@ export function DashboardPage() {
   const { data, isLoading, isError } = useInstances({}, 1, 100);
 
   const instances = data?.instances ?? [];
-  const total = data?.total ?? 0;
+  const total = data?.pagination?.total ?? 0;
   const running = countByStatus(instances, "RUNNING");
   const errors = countByStatus(instances, "ERROR");
   const deploying = countByStatus(instances, "DEPLOYING");

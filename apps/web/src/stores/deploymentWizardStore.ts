@@ -25,10 +25,12 @@ export interface DeploymentWizardState {
 
   // Step 2 — Image & Volumes
   imageConfig: ImageConfig;
+  homeDataSizeGb: number;
   volumes: VolumeEntry[];
 
   // Step 3 — Profile & Extensions
   profileName: string | null;
+  profileExtensions: string[];
   selectedExtensions: string[];
 
   // Step 4 — Region & Compute
@@ -69,6 +71,7 @@ export interface DeploymentWizardActions {
 
   // Step 2
   setImageConfig: (config: Partial<ImageConfig>) => void;
+  setHomeDataSizeGb: (gb: number) => void;
   setVolumes: (volumes: VolumeEntry[]) => void;
   addVolume: () => void;
   removeVolume: (index: number) => void;
@@ -76,6 +79,7 @@ export interface DeploymentWizardActions {
 
   // Step 3
   setProfileName: (name: string | null) => void;
+  setProfileExtensions: (extensions: string[]) => void;
   setSelectedExtensions: (extensions: string[]) => void;
   toggleExtension: (ext: string) => void;
 
@@ -126,8 +130,10 @@ const INITIAL_STATE: DeploymentWizardState = {
   name: "",
   provider: null,
   imageConfig: {},
+  homeDataSizeGb: 20,
   volumes: [],
   profileName: null,
+  profileExtensions: [],
   selectedExtensions: [],
   region: "",
   vmSize: "",
@@ -154,8 +160,10 @@ function computeYaml(state: DeploymentWizardState, imageDefaults: ImageDefaults)
     provider: state.provider,
     imageConfig: state.imageConfig,
     imageDefaults,
+    homeDataSizeGb: state.homeDataSizeGb,
     volumes: state.volumes,
     profileName: state.profileName,
+    profileExtensions: state.profileExtensions,
     selectedExtensions: state.selectedExtensions,
     region: state.region,
     vmSize: state.vmSize,
@@ -192,6 +200,7 @@ export const useDeploymentWizardStore = create<DeploymentWizardState & Deploymen
 
     // ── Step 2 ────────────────────────────────────────────────────────────
     setImageConfig: (config) => set((s) => ({ imageConfig: { ...s.imageConfig, ...config } })),
+    setHomeDataSizeGb: (homeDataSizeGb) => set({ homeDataSizeGb }),
     setVolumes: (volumes) => set({ volumes }),
     addVolume: () => set((s) => ({ volumes: [...s.volumes, { name: "", path: "", size: "" }] })),
     removeVolume: (index) => set((s) => ({ volumes: s.volumes.filter((_, i) => i !== index) })),
@@ -202,6 +211,7 @@ export const useDeploymentWizardStore = create<DeploymentWizardState & Deploymen
 
     // ── Step 3 ────────────────────────────────────────────────────────────
     setProfileName: (profileName) => set({ profileName }),
+    setProfileExtensions: (profileExtensions) => set({ profileExtensions }),
     setSelectedExtensions: (selectedExtensions) => set({ selectedExtensions }),
     toggleExtension: (ext) =>
       set((s) => {

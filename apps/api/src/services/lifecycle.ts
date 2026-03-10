@@ -1,14 +1,19 @@
 /**
  * Instance lifecycle service — suspend, resume, destroy, backup, bulk actions.
  *
- * Handles state transitions and emits Redis events for real-time updates.
+ * Single source of truth for all instance state transitions.
+ * Handles state validation, infra teardown, and emits Redis events for real-time updates.
  */
 
-import { type Instance, EventType } from "@prisma/client";
+import { type Instance, type InstanceStatus, EventType } from "@prisma/client";
 import { db } from "../lib/db.js";
 import { redis, REDIS_CHANNELS } from "../lib/redis.js";
 import { logger } from "../lib/logger.js";
 import { randomUUID } from "crypto";
+import { writeFile, unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { isCliConfigured, runCliCapture } from "../lib/cli.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Input types
@@ -17,6 +22,7 @@ import { randomUUID } from "crypto";
 export interface DestroyInstanceInput {
   backupVolume: boolean;
   backupLabel?: string;
+  skipInfraTeardown?: boolean;
 }
 
 export interface BackupVolumeInput {
@@ -50,12 +56,34 @@ export interface BulkActionResult {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Available actions per status
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function getAvailableActions(status: string): string[] {
+  switch (status) {
+    case "RUNNING":
+      return ["suspend", "destroy", "backup"];
+    case "SUSPENDED":
+      return ["resume", "destroy", "backup"];
+    case "STOPPED":
+      return ["resume", "destroy"];
+    case "ERROR":
+      return ["resume", "destroy"];
+    default:
+      return [];
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Lifecycle service methods
 // ─────────────────────────────────────────────────────────────────────────────
+
+const DESTROYABLE_STATUSES = ["RUNNING", "SUSPENDED", "STOPPED", "ERROR", "DESTROYING"];
 
 /**
  * Suspend a RUNNING instance (sets status to SUSPENDED).
  * Only RUNNING instances can be suspended.
+ * Pauses/stops the underlying infrastructure so it stops consuming resources.
  */
 export async function suspendInstance(id: string): Promise<Instance | null> {
   const existing = await db.instance.findUnique({ where: { id } });
@@ -66,6 +94,9 @@ export async function suspendInstance(id: string): Promise<Instance | null> {
       `Instance '${existing.name}' cannot be suspended: current status is ${existing.status}`,
     );
   }
+
+  // Stop the underlying infrastructure
+  await suspendInstanceInfra(existing.name, existing.provider);
 
   const instance = await db.instance.update({
     where: { id },
@@ -89,6 +120,7 @@ export async function suspendInstance(id: string): Promise<Instance | null> {
 /**
  * Resume an instance (sets status to RUNNING).
  * Instances in SUSPENDED, STOPPED, or ERROR status can be resumed.
+ * Attempts to start the underlying infrastructure before updating the DB.
  */
 export async function resumeInstance(id: string): Promise<Instance | null> {
   const existing = await db.instance.findUnique({ where: { id } });
@@ -100,6 +132,9 @@ export async function resumeInstance(id: string): Promise<Instance | null> {
       `Instance '${existing.name}' cannot be resumed: current status is ${existing.status}`,
     );
   }
+
+  // Start the underlying infrastructure before marking as RUNNING
+  await resumeInstanceInfra(existing.name, existing.provider);
 
   const previousStatus = existing.status;
   const instance = await db.instance.update({
@@ -122,8 +157,10 @@ export async function resumeInstance(id: string): Promise<Instance | null> {
 }
 
 /**
- * Destroy an instance with optional volume backup before deletion.
- * Sets status to DESTROYING, optionally backs up volume, then marks as STOPPED.
+ * Destroy an instance with optional volume backup.
+ *
+ * When `skipInfraTeardown` is true (agent self-deregistration), sets status to STOPPED.
+ * Otherwise tears down infrastructure and sets status to DESTROYED.
  */
 export async function destroyInstance(
   id: string,
@@ -132,11 +169,19 @@ export async function destroyInstance(
   const existing = await db.instance.findUnique({ where: { id } });
   if (!existing) return null;
 
-  // Transition to DESTROYING state
-  await db.instance.update({
-    where: { id },
-    data: { status: "DESTROYING", updated_at: new Date() },
-  });
+  if (!DESTROYABLE_STATUSES.includes(existing.status)) {
+    throw new Error(
+      `Instance '${existing.name}' cannot be destroyed: current status is ${existing.status}`,
+    );
+  }
+
+  // Transition to DESTROYING state (skip if already DESTROYING from a previous failed attempt)
+  if (existing.status !== "DESTROYING") {
+    await db.instance.update({
+      where: { id },
+      data: { status: "DESTROYING", updated_at: new Date() },
+    });
+  }
 
   publishLifecycleEvent(id, "destroying", { name: existing.name });
 
@@ -153,10 +198,20 @@ export async function destroyInstance(
     }
   }
 
-  // Mark as STOPPED (soft delete — preserves audit trail)
+  let finalStatus: InstanceStatus;
+
+  if (input.skipInfraTeardown) {
+    // Agent self-deregistration — infra may still exist
+    finalStatus = "STOPPED";
+  } else {
+    // Full destroy — tear down infrastructure
+    await destroyInstanceInfra(existing.name, existing.provider);
+    finalStatus = "DESTROYED";
+  }
+
   const instance = await db.instance.update({
     where: { id },
-    data: { status: "STOPPED", updated_at: new Date() },
+    data: { status: finalStatus, updated_at: new Date() },
   });
 
   await db.event.create({
@@ -167,6 +222,8 @@ export async function destroyInstance(
         triggered_by: "api",
         backup_id: backupId ?? null,
         volume_backed_up: input.backupVolume,
+        infra_torn_down: !input.skipInfraTeardown,
+        final_status: finalStatus,
       },
     },
   });
@@ -176,7 +233,20 @@ export async function destroyInstance(
   // Remove from active agents set in Redis
   await redis.srem("sindri:agents:active", id).catch(() => {});
 
-  logger.info({ instanceId: id, name: instance.name, backupId }, "Instance destroyed");
+  // Hard-delete deployment secrets from the vault — no recovery after destroy
+  if (finalStatus === "DESTROYED") {
+    const deleted = await db.secret
+      .deleteMany({ where: { instance_id: id, scope: { has: "deployment" } } })
+      .catch((err: unknown) => {
+        logger.warn({ err, instanceId: id }, "Failed to purge deployment secrets from vault");
+        return { count: 0 };
+      });
+    if (deleted.count > 0) {
+      logger.info({ instanceId: id, count: deleted.count }, "Deployment secrets purged from vault");
+    }
+  }
+
+  logger.info({ instanceId: id, name: instance.name, backupId, finalStatus }, "Instance destroyed");
   return { instance, backupId };
 }
 
@@ -306,6 +376,118 @@ export async function bulkInstanceAction(input: BulkActionInput): Promise<BulkAc
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal helpers
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Destroy the instance's infrastructure using the Sindri CLI when available.
+ *
+ * The Sindri CLI handles provider-specific teardown:
+ *   - Docker: docker-compose down + volume cleanup
+ *   - Fly.io: fly apps destroy
+ *   - E2B:    sandbox delete
+ *   - K8s:    kubectl delete deployment
+ *   - RunPod: pod termination via API
+ *   - Northflank: service deletion via API
+ *   - DevPod: devpod delete
+ */
+async function destroyInstanceInfra(instanceName: string, provider: string): Promise<void> {
+  if (!isCliConfigured()) {
+    logger.warn(
+      { instanceName, provider },
+      "Sindri CLI not configured — cannot destroy infrastructure",
+    );
+    return;
+  }
+
+  let tmpFile: string | null = null;
+  try {
+    const minimalYaml = [
+      'version: "3.0"',
+      `name: ${instanceName}`,
+      "deployment:",
+      `  provider: ${provider}`,
+    ].join("\n");
+
+    tmpFile = join(tmpdir(), `sindri-destroy-${instanceName}-${Date.now()}.yaml`);
+    await writeFile(tmpFile, minimalYaml, "utf-8");
+
+    await runCliCapture(["destroy", "--force", "--config", tmpFile]);
+    logger.info({ instanceName, provider }, "Instance destroyed via Sindri CLI");
+  } catch (err) {
+    logger.warn({ err, instanceName, provider }, "Sindri CLI destroy failed");
+  } finally {
+    if (tmpFile) await unlink(tmpFile).catch(() => undefined);
+  }
+}
+
+/**
+ * Suspend (stop) the instance's infrastructure via `sindri stop`.
+ * All 7 providers (docker, fly, devpod, e2b, kubernetes, runpod, northflank)
+ * implement stop through the Provider trait.
+ */
+async function suspendInstanceInfra(instanceName: string, provider: string): Promise<void> {
+  if (!isCliConfigured()) {
+    logger.warn(
+      { instanceName, provider },
+      "Sindri CLI not configured — cannot stop infrastructure",
+    );
+    return;
+  }
+
+  let tmpFile: string | null = null;
+  try {
+    const minimalYaml = [
+      'version: "3.0"',
+      `name: ${instanceName}`,
+      "deployment:",
+      `  provider: ${provider}`,
+    ].join("\n");
+
+    tmpFile = join(tmpdir(), `sindri-stop-${instanceName}-${Date.now()}.yaml`);
+    await writeFile(tmpFile, minimalYaml, "utf-8");
+
+    await runCliCapture(["stop", "--config", tmpFile]);
+    logger.info({ instanceName, provider }, "Instance stopped via Sindri CLI");
+  } catch (err) {
+    logger.warn({ err, instanceName, provider }, "Sindri CLI stop failed");
+  } finally {
+    if (tmpFile) await unlink(tmpFile).catch(() => undefined);
+  }
+}
+
+/**
+ * Resume (start) the instance's infrastructure via `sindri start`.
+ * All 7 providers (docker, fly, devpod, e2b, kubernetes, runpod, northflank)
+ * implement start through the Provider trait.
+ */
+async function resumeInstanceInfra(instanceName: string, provider: string): Promise<void> {
+  if (!isCliConfigured()) {
+    logger.warn(
+      { instanceName, provider },
+      "Sindri CLI not configured — cannot start infrastructure",
+    );
+    return;
+  }
+
+  let tmpFile: string | null = null;
+  try {
+    const minimalYaml = [
+      'version: "3.0"',
+      `name: ${instanceName}`,
+      "deployment:",
+      `  provider: ${provider}`,
+    ].join("\n");
+
+    tmpFile = join(tmpdir(), `sindri-start-${instanceName}-${Date.now()}.yaml`);
+    await writeFile(tmpFile, minimalYaml, "utf-8");
+
+    await runCliCapture(["start", "--config", tmpFile]);
+    logger.info({ instanceName, provider }, "Instance started via Sindri CLI");
+  } catch (err) {
+    logger.warn({ err, instanceName, provider }, "Sindri CLI start failed");
+  } finally {
+    if (tmpFile) await unlink(tmpFile).catch(() => undefined);
+  }
+}
 
 function publishLifecycleEvent(
   instanceId: string,

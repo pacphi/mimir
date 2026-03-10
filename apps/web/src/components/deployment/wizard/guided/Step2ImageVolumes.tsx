@@ -10,12 +10,24 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useDeploymentWizardStore } from "@/stores/deploymentWizardStore";
-import { SYSTEM_MOUNT_PATH } from "@/lib/sindri-constraints";
+import {
+  SYSTEM_MOUNT_PATH,
+  HOME_DATA_MIN_SIZE_GB,
+  VOLUME_MIN_SIZE_GB,
+} from "@/lib/sindri-constraints";
 import { useAppConfig } from "@/hooks/useAppConfig";
 
 export function Step2ImageVolumes() {
-  const { imageConfig, setImageConfig, volumes, addVolume, removeVolume, updateVolume } =
-    useDeploymentWizardStore();
+  const {
+    imageConfig,
+    setImageConfig,
+    homeDataSizeGb,
+    setHomeDataSizeGb,
+    volumes,
+    addVolume,
+    removeVolume,
+    updateVolume,
+  } = useDeploymentWizardStore();
   const { data: appConfig } = useAppConfig();
 
   return (
@@ -139,7 +151,7 @@ export function Step2ImageVolumes() {
           </Button>
         </div>
 
-        {/* System volume — read-only info card */}
+        {/* System volume — name/path read-only, size editable */}
         <div className="flex items-end gap-3 p-3 rounded-md border border-input bg-muted/40 mb-3">
           <div className="flex-1">
             <Label className="text-xs text-muted-foreground">Name</Label>
@@ -153,10 +165,35 @@ export function Step2ImageVolumes() {
               {SYSTEM_MOUNT_PATH}
             </div>
           </div>
-          <div className="w-28">
-            <Label className="text-xs text-muted-foreground">Size</Label>
-            <div className="mt-1 flex items-center h-9 px-3 rounded-md border border-input bg-muted/60 text-xs text-muted-foreground select-none">
-              auto
+          <div className="w-32">
+            <Label htmlFor="home-data-size" className="text-xs text-muted-foreground">
+              Size (GB)
+            </Label>
+            <div className="mt-1 flex items-center">
+              <Input
+                id="home-data-size"
+                type="number"
+                min={HOME_DATA_MIN_SIZE_GB}
+                step={1}
+                className="rounded-r-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                value={homeDataSizeGb || ""}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (raw === "") {
+                    setHomeDataSizeGb(0);
+                  } else {
+                    const v = parseInt(raw, 10);
+                    if (!isNaN(v)) setHomeDataSizeGb(v);
+                  }
+                }}
+                onBlur={() => {
+                  if (homeDataSizeGb < HOME_DATA_MIN_SIZE_GB)
+                    setHomeDataSizeGb(HOME_DATA_MIN_SIZE_GB);
+                }}
+              />
+              <span className="inline-flex items-center h-9 px-2 rounded-r-md border border-l-0 border-input bg-muted text-xs text-muted-foreground select-none">
+                GB
+              </span>
             </div>
           </div>
           <div className="h-9 w-9 shrink-0 flex items-center justify-center text-muted-foreground/50">
@@ -177,7 +214,7 @@ export function Step2ImageVolumes() {
           </div>
         </div>
         <p className="text-xs text-muted-foreground mb-3">
-          System-managed — always provisioned automatically.
+          System-managed — always provisioned. Minimum {HOME_DATA_MIN_SIZE_GB}GB.
         </p>
 
         {volumes.length > 0 && (
@@ -205,14 +242,31 @@ export function Step2ImageVolumes() {
                     onChange={(e) => updateVolume(i, { path: e.target.value })}
                   />
                 </div>
-                <div className="w-28">
-                  <Label className="text-xs">Size</Label>
-                  <Input
-                    className="mt-1"
-                    placeholder="10GB"
-                    value={vol.size}
-                    onChange={(e) => updateVolume(i, { size: e.target.value })}
-                  />
+                <div className="w-32">
+                  <Label className="text-xs">Size (GB)</Label>
+                  <div className="mt-1 flex items-center">
+                    <Input
+                      type="number"
+                      min={VOLUME_MIN_SIZE_GB}
+                      step={1}
+                      className="rounded-r-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      placeholder={String(VOLUME_MIN_SIZE_GB)}
+                      value={vol.size ? parseInt(vol.size, 10) || "" : ""}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        updateVolume(i, { size: v ? `${v}GB` : "" });
+                      }}
+                      onBlur={() => {
+                        const num = parseInt(vol.size, 10);
+                        if (!isNaN(num) && num < VOLUME_MIN_SIZE_GB) {
+                          updateVolume(i, { size: `${VOLUME_MIN_SIZE_GB}GB` });
+                        }
+                      }}
+                    />
+                    <span className="inline-flex items-center h-9 px-2 rounded-r-md border border-l-0 border-input bg-muted text-xs text-muted-foreground select-none">
+                      GB
+                    </span>
+                  </div>
                 </div>
                 <Button
                   variant="ghost"

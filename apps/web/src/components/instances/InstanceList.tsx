@@ -105,7 +105,7 @@ export function InstanceList({ onSelectInstance }: InstanceListProps) {
           <FiltersBar
             filters={filters}
             onChange={setFilters}
-            totalCount={data?.total}
+            totalCount={data?.pagination?.total}
             filteredCount={instances.length}
           />
         </div>

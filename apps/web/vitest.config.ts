@@ -13,7 +13,7 @@ export default defineConfig({
     include:
       process.env.VITEST_MODE === "integration"
         ? ["tests/instance-realtime.test.ts"]
-        : ["tests/utils.test.ts"],
+        : ["tests/utils.test.ts", "tests/yaml-assembler.test.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "html", "lcov"],

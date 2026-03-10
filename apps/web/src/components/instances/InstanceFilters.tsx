@@ -17,6 +17,7 @@ const STATUSES: { value: InstanceStatus; label: string }[] = [
   { value: "SUSPENDED", label: "Suspended" },
   { value: "DEPLOYING", label: "Deploying" },
   { value: "DESTROYING", label: "Destroying" },
+  { value: "DESTROYED", label: "Destroyed" },
   { value: "ERROR", label: "Error" },
   { value: "UNKNOWN", label: "Unknown" },
 ];

@@ -17,6 +17,7 @@ const STATUS_CONFIG: Record<
   SUSPENDED: { label: "Suspended", variant: "warning", pulse: false },
   DEPLOYING: { label: "Deploying", variant: "info", pulse: true },
   DESTROYING: { label: "Destroying", variant: "warning", pulse: true },
+  DESTROYED: { label: "Destroyed", variant: "error", pulse: false },
   ERROR: { label: "Error", variant: "error", pulse: false },
   UNKNOWN: { label: "Unknown", variant: "muted", pulse: false },
 };

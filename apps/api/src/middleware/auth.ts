@@ -48,6 +48,19 @@ async function tryApiKeyAuth(c: Context): Promise<ApiKeyResult> {
   const rawKey = extractRawKey(c);
   if (!rawKey) return { ok: false };
 
+  // System agent API key — used by draupnir instances to register and send data
+  const consoleApiKey = process.env.SINDRI_CONSOLE_API_KEY;
+  if (consoleApiKey && rawKey === consoleApiKey) {
+    return {
+      ok: true,
+      auth: {
+        userId: "system-agent",
+        role: "OPERATOR",
+        authMethod: "api_key" as const,
+      },
+    };
+  }
+
   const keyHash = hashKey(rawKey);
 
   let record: {

@@ -138,7 +138,13 @@ export async function listInstances(filter: ListInstancesFilter = {}): Promise<{
     ...(filter.teamScope as Prisma.InstanceWhereInput | undefined),
   };
   if (filter.provider) where.provider = filter.provider;
-  if (filter.status) where.status = filter.status;
+  if (filter.status) {
+    where.status = filter.status;
+  } else {
+    // By default, hide DESTROYED instances — they're retained for audit but
+    // shouldn't clutter the active fleet view. Users can explicitly filter by DESTROYED.
+    where.status = { not: "DESTROYED" };
+  }
   if (filter.region) where.region = filter.region;
 
   const [instances, total] = await Promise.all([
@@ -198,35 +204,19 @@ export async function getInstanceById(id: string): Promise<
 }
 
 /**
- * Deregister (soft-delete) an instance by setting its status to DESTROYING then STOPPED.
- * Preserves the record for audit purposes.
+ * Deregister (soft-delete) an instance via the lifecycle service.
+ * Uses skipInfraTeardown since the agent is self-deregistering (infra may still exist).
+ * Sets status to STOPPED, preserving the record for audit purposes.
  */
 export async function deregisterInstance(id: string): Promise<Instance | null> {
-  const existing = await db.instance.findUnique({ where: { id } });
-  if (!existing) return null;
-
-  const instance = await db.instance.update({
-    where: { id },
-    data: { status: "STOPPED", updated_at: new Date() },
-  });
-
-  // Record DESTROY event
-  await db.event.create({
-    data: {
-      instance_id: id,
-      event_type: "DESTROY",
-      metadata: { triggered_by: "api" },
-    },
-  });
-
-  // Publish to Redis
-  publishInstanceEvent(id, "destroy", { name: instance.name });
-
-  // Remove from online set in Redis
-  await redis.srem("sindri:agents:active", id).catch(() => {});
-
-  logger.info({ instanceId: id, name: instance.name }, "Instance deregistered");
-  return instance;
+  const { destroyInstance } = await import("./lifecycle.js");
+  try {
+    const result = await destroyInstance(id, { backupVolume: false, skipInfraTeardown: true });
+    return result?.instance ?? null;
+  } catch {
+    // If the instance is in a non-destroyable state, return null
+    return null;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

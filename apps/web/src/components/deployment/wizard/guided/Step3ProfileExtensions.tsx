@@ -75,8 +75,14 @@ function useHorizontalScrollIndicators(dep: unknown) {
 // ─── Component ─────────────────────────────────────────────────────────────
 
 export function Step3ProfileExtensions() {
-  const { profileName, selectedExtensions, setProfileName, setSelectedExtensions } =
-    useDeploymentWizardStore();
+  const {
+    profileName,
+    profileExtensions,
+    selectedExtensions,
+    setProfileName,
+    setProfileExtensions,
+    setSelectedExtensions,
+  } = useDeploymentWizardStore();
 
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [search, setSearch] = useState("");
@@ -158,12 +164,14 @@ export function Step3ProfileExtensions() {
     if (profileName === name) {
       // Deselect
       setProfileName(null);
+      setProfileExtensions([]);
       setSelectedExtensions(ensureDraupnir([]));
       return;
     }
     const profile = profiles.find((p) => p.name === name);
     if (!profile) return;
     setProfileName(name);
+    setProfileExtensions([...profile.extensions]);
     setSelectedExtensions(ensureDraupnir([...profile.extensions]));
   }
 
@@ -173,15 +181,22 @@ export function Step3ProfileExtensions() {
       ? selectedExtensions.filter((e) => e !== extName)
       : [...selectedExtensions, extName].sort();
     const withRequired = ensureDraupnir(next);
-    // Clear profile when manually toggling
-    setProfileName(null);
+    // Only clear profile if removing an extension that belongs to the profile
+    if (has && profileExtensions.includes(extName)) {
+      setProfileName(null);
+      setProfileExtensions([]);
+    }
     setSelectedExtensions(withRequired);
   }
 
   function handleRemoveExtension(extName: string) {
     if (REQUIRED_EXTENSIONS.includes(extName)) return;
     const next = selectedExtensions.filter((e) => e !== extName);
-    setProfileName(null);
+    // Only clear profile if removing a profile-owned extension
+    if (profileExtensions.includes(extName)) {
+      setProfileName(null);
+      setProfileExtensions([]);
+    }
     setSelectedExtensions(next);
   }
 

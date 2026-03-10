@@ -9,6 +9,7 @@
  * POST   /api/v1/instances/:id/destroy      — Destroy with optional volume backup
  * POST   /api/v1/instances/:id/backup       — Backup instance volume
  * POST   /api/v1/instances/bulk-action      — Bulk operations on multiple instances
+ * GET    /api/v1/instances/:id/lifecycle     — Available lifecycle actions
  */
 
 import { Hono } from "hono";
@@ -18,11 +19,14 @@ import { rateLimitDefault, rateLimitStrict } from "../../middleware/rateLimit.js
 import { db } from "../../lib/db.js";
 import { redis, REDIS_CHANNELS } from "../../lib/redis.js";
 import { logger } from "../../lib/logger.js";
-import { randomUUID } from "node:crypto";
-import { writeFile, unlink } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { isCliConfigured, runCliCapture } from "../../lib/cli.js";
+import {
+  suspendInstance,
+  resumeInstance,
+  destroyInstance,
+  getAvailableActions,
+  bulkInstanceAction,
+} from "../../services/lifecycle.js";
+import { createDeployment } from "../../services/deployments.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Zod schemas
@@ -85,13 +89,20 @@ lifecycle.get("/:id/config", rateLimitDefault, async (c) => {
       return c.json({ error: "Not Found", message: `Instance '${id}' not found` }, 404);
     }
 
-    const config = buildConfigYaml(instance);
+    // Prefer the original yaml_content from the most recent successful deployment
+    const latestDeployment = await db.deployment.findFirst({
+      where: { instance_id: id, status: { in: ["SUCCEEDED", "IN_PROGRESS"] } },
+      orderBy: { started_at: "desc" },
+      select: { yaml_content: true, config_hash: true },
+    });
+
+    const config = latestDeployment?.yaml_content ?? buildConfigYaml(instance);
 
     return c.json({
       instanceId: instance.id,
       name: instance.name,
       config,
-      configHash: instance.config_hash,
+      configHash: latestDeployment?.config_hash ?? instance.config_hash,
       updatedAt: instance.updated_at.toISOString(),
     });
   } catch (err) {
@@ -259,7 +270,18 @@ lifecycle.post("/:id/redeploy", rateLimitStrict, requireRole("OPERATOR"), async 
       );
     }
 
-    const updated = await db.instance.update({
+    // Resolve the config to use: caller-supplied override, latest deployment, or reconstructed
+    let yamlConfig = parseResult.data.config;
+    if (!yamlConfig) {
+      const latestDeployment = await db.deployment.findFirst({
+        where: { instance_id: id, status: { in: ["SUCCEEDED", "IN_PROGRESS"] } },
+        orderBy: { started_at: "desc" },
+        select: { yaml_content: true },
+      });
+      yamlConfig = latestDeployment?.yaml_content ?? buildConfigYaml(instance);
+    }
+
+    await db.instance.update({
       where: { id },
       data: { status: "DEPLOYING", updated_at: new Date() },
     });
@@ -282,19 +304,45 @@ lifecycle.post("/:id/redeploy", rateLimitStrict, requireRole("OPERATOR"), async 
       force: parseResult.data.force,
     });
 
+    // Actually run the deployment with --force to tear down existing container/volumes
+    const deployment = await createDeployment({
+      name: instance.name,
+      provider: instance.provider,
+      region: instance.region ?? "local",
+      vm_size: "medium",
+      memory_gb: 4,
+      storage_gb: 20,
+      yaml_config: yamlConfig,
+      initiated_by: c.get("auth")?.userId,
+      force: true,
+    });
+
     logger.info(
-      { instanceId: id, name: instance.name, force: parseResult.data.force },
-      "Instance redeploy triggered",
+      {
+        instanceId: id,
+        deploymentId: deployment.id,
+        name: instance.name,
+        force: parseResult.data.force,
+      },
+      "Instance redeploy triggered via deployment",
     );
 
     return c.json({
-      id: updated.id,
-      name: updated.name,
-      status: updated.status,
+      id: instance.id,
+      name: instance.name,
+      status: "DEPLOYING",
+      deploymentId: deployment.id,
       message: "Redeploy triggered successfully",
-      updatedAt: updated.updated_at.toISOString(),
+      updatedAt: new Date().toISOString(),
     });
   } catch (err) {
+    // Revert status if deployment creation failed
+    await db.instance
+      .update({
+        where: { id },
+        data: { status: "ERROR", updated_at: new Date() },
+      })
+      .catch(() => {});
     logger.error({ err, instanceId: id }, "Failed to trigger redeploy");
     return c.json({ error: "Internal Server Error", message: "Failed to trigger redeploy" }, 500);
   }
@@ -309,38 +357,10 @@ lifecycle.post("/:id/suspend", rateLimitStrict, requireRole("OPERATOR"), async (
   }
 
   try {
-    const existing = await db.instance.findUnique({ where: { id } });
-    if (!existing) {
+    const instance = await suspendInstance(id);
+    if (!instance) {
       return c.json({ error: "Not Found", message: `Instance '${id}' not found` }, 404);
     }
-
-    if (existing.status !== "RUNNING") {
-      return c.json(
-        {
-          error: "Conflict",
-          message: `Instance '${existing.name}' cannot be suspended: current status is ${existing.status}`,
-        },
-        409,
-      );
-    }
-
-    const instance = await db.instance.update({
-      where: { id },
-      data: { status: "SUSPENDED", updated_at: new Date() },
-    });
-
-    await db.event.create({
-      data: {
-        instance_id: id,
-        event_type: "SUSPEND",
-        metadata: { triggered_by: "api", previous_status: "RUNNING" },
-      },
-    });
-
-    publishInstanceEvent(id, "suspend", { name: instance.name, status: instance.status });
-
-    logger.info({ instanceId: id, name: instance.name }, "Instance suspended");
-
     return c.json({
       message: "Instance suspended",
       id: instance.id,
@@ -348,6 +368,9 @@ lifecycle.post("/:id/suspend", rateLimitStrict, requireRole("OPERATOR"), async (
       status: instance.status,
     });
   } catch (err) {
+    if (err instanceof Error && err.message.includes("cannot be suspended")) {
+      return c.json({ error: "Conflict", message: err.message }, 409);
+    }
     logger.error({ err, instanceId: id }, "Failed to suspend instance");
     return c.json({ error: "Internal Server Error", message: "Failed to suspend instance" }, 500);
   }
@@ -362,38 +385,10 @@ lifecycle.post("/:id/resume", rateLimitStrict, requireRole("OPERATOR"), async (c
   }
 
   try {
-    const existing = await db.instance.findUnique({ where: { id } });
-    if (!existing) {
+    const instance = await resumeInstance(id);
+    if (!instance) {
       return c.json({ error: "Not Found", message: `Instance '${id}' not found` }, 404);
     }
-
-    if (existing.status !== "SUSPENDED") {
-      return c.json(
-        {
-          error: "Conflict",
-          message: `Instance '${existing.name}' cannot be resumed: current status is ${existing.status}`,
-        },
-        409,
-      );
-    }
-
-    const instance = await db.instance.update({
-      where: { id },
-      data: { status: "RUNNING", updated_at: new Date() },
-    });
-
-    await db.event.create({
-      data: {
-        instance_id: id,
-        event_type: "RESUME",
-        metadata: { triggered_by: "api", previous_status: "SUSPENDED" },
-      },
-    });
-
-    publishInstanceEvent(id, "resume", { name: instance.name, status: instance.status });
-
-    logger.info({ instanceId: id, name: instance.name }, "Instance resumed");
-
     return c.json({
       message: "Instance resumed",
       id: instance.id,
@@ -401,6 +396,9 @@ lifecycle.post("/:id/resume", rateLimitStrict, requireRole("OPERATOR"), async (c
       status: instance.status,
     });
   } catch (err) {
+    if (err instanceof Error && err.message.includes("cannot be resumed")) {
+      return c.json({ error: "Conflict", message: err.message }, 409);
+    }
     logger.error({ err, instanceId: id }, "Failed to resume instance");
     return c.json({ error: "Internal Server Error", message: "Failed to resume instance" }, 500);
   }
@@ -435,82 +433,21 @@ lifecycle.post("/:id/destroy", rateLimitStrict, requireRole("OPERATOR"), async (
   }
 
   try {
-    const existing = await db.instance.findUnique({ where: { id } });
-    if (!existing) {
+    const result = await destroyInstance(id, parseResult.data);
+    if (!result) {
       return c.json({ error: "Not Found", message: `Instance '${id}' not found` }, 404);
     }
-
-    // Transition to DESTROYING
-    await db.instance.update({
-      where: { id },
-      data: { status: "DESTROYING", updated_at: new Date() },
-    });
-
-    publishInstanceEvent(id, "destroying", { name: existing.name });
-
-    let backupId: string | undefined;
-
-    if (parseResult.data.backupVolume) {
-      const label = parseResult.data.backupLabel ?? `pre-destroy-${existing.name}-${Date.now()}`;
-      backupId = randomUUID();
-
-      const backupMeta = {
-        id: backupId,
-        instanceId: id,
-        label,
-        status: "pending",
-        compression: "gzip",
-        createdAt: new Date().toISOString(),
-      };
-
-      await redis
-        .set(`sindri:backups:${backupId}`, JSON.stringify(backupMeta), "EX", 86400 * 30)
-        .catch(() => {});
-
-      await db.event.create({
-        data: {
-          instance_id: id,
-          event_type: "BACKUP",
-          metadata: { backup_id: backupId, label, compression: "gzip", triggered_by: "api" },
-        },
-      });
-    }
-
-    // Destroy the instance's infrastructure via the Sindri CLI or direct Docker removal
-    await destroyInstanceInfra(existing.name, existing.provider);
-
-    // Record the destroy event before deletion
-    await db.event.create({
-      data: {
-        instance_id: id,
-        event_type: "DESTROY",
-        metadata: {
-          triggered_by: "api",
-          backup_id: backupId ?? null,
-          volume_backed_up: parseResult.data.backupVolume,
-        },
-      },
-    });
-
-    publishInstanceEvent(id, "destroy", { name: existing.name });
-
-    await redis.srem("sindri:agents:active", id).catch(() => {});
-
-    // Delete the instance record
-    await db.instance.delete({ where: { id } });
-
-    logger.info(
-      { instanceId: id, name: existing.name, backupId },
-      "Instance destroyed and deleted",
-    );
-
     return c.json({
       message: "Instance destroyed",
-      id,
-      name: existing.name,
-      backupId: backupId ?? null,
+      id: result.instance.id,
+      name: result.instance.name,
+      status: result.instance.status,
+      backupId: result.backupId ?? null,
     });
   } catch (err) {
+    if (err instanceof Error && err.message.includes("cannot be destroyed")) {
+      return c.json({ error: "Conflict", message: err.message }, 409);
+    }
     logger.error({ err, instanceId: id }, "Failed to destroy instance");
     return c.json({ error: "Internal Server Error", message: "Failed to destroy instance" }, 500);
   }
@@ -549,6 +486,7 @@ lifecycle.post("/:id/backup", rateLimitStrict, requireRole("OPERATOR"), async (c
       return c.json({ error: "Not Found", message: `Instance '${id}' not found` }, 404);
     }
 
+    const { randomUUID } = await import("node:crypto");
     const backupId = randomUUID();
     const label = parseResult.data.label ?? `backup-${instance.name}-${Date.now()}`;
     const createdAt = new Date().toISOString();
@@ -625,150 +563,22 @@ lifecycle.post("/bulk-action", rateLimitStrict, requireRole("OPERATOR"), async (
     );
   }
 
-  const { instanceIds, action, options } = parseResult.data;
-
   try {
-    const results = await Promise.allSettled(
-      instanceIds.map(async (instanceId) => {
-        try {
-          const existing = await db.instance.findUnique({ where: { id: instanceId } });
-          if (!existing) {
-            return {
-              id: instanceId,
-              name: instanceId,
-              success: false,
-              error: "Instance not found",
-            };
-          }
-
-          if (action === "suspend") {
-            if (existing.status !== "RUNNING") {
-              return {
-                id: instanceId,
-                name: existing.name,
-                success: false,
-                error: `Cannot suspend: status is ${existing.status}`,
-              };
-            }
-            const updated = await db.instance.update({
-              where: { id: instanceId },
-              data: { status: "SUSPENDED", updated_at: new Date() },
-            });
-            await db.event.create({
-              data: {
-                instance_id: instanceId,
-                event_type: "SUSPEND",
-                metadata: { triggered_by: "api", bulk: true },
-              },
-            });
-            publishInstanceEvent(instanceId, "suspend", { name: updated.name });
-            return { id: instanceId, name: updated.name, success: true, newStatus: "SUSPENDED" };
-          }
-
-          if (action === "resume") {
-            if (existing.status !== "SUSPENDED") {
-              return {
-                id: instanceId,
-                name: existing.name,
-                success: false,
-                error: `Cannot resume: status is ${existing.status}`,
-              };
-            }
-            const updated = await db.instance.update({
-              where: { id: instanceId },
-              data: { status: "RUNNING", updated_at: new Date() },
-            });
-            await db.event.create({
-              data: {
-                instance_id: instanceId,
-                event_type: "RESUME",
-                metadata: { triggered_by: "api", bulk: true },
-              },
-            });
-            publishInstanceEvent(instanceId, "resume", { name: updated.name });
-            return { id: instanceId, name: updated.name, success: true, newStatus: "RUNNING" };
-          }
-
-          if (action === "destroy") {
-            await db.instance.update({
-              where: { id: instanceId },
-              data: { status: "DESTROYING", updated_at: new Date() },
-            });
-
-            let backupId: string | undefined;
-            if (options?.backupVolume) {
-              backupId = randomUUID();
-              const label = `pre-destroy-${existing.name}-${Date.now()}`;
-              await redis
-                .set(
-                  `sindri:backups:${backupId}`,
-                  JSON.stringify({ id: backupId, instanceId, label, status: "pending" }),
-                  "EX",
-                  86400 * 30,
-                )
-                .catch(() => {});
-              await db.event.create({
-                data: {
-                  instance_id: instanceId,
-                  event_type: "BACKUP",
-                  metadata: { backup_id: backupId, label, triggered_by: "api", bulk: true },
-                },
-              });
-            }
-
-            await destroyInstanceInfra(existing.name, existing.provider);
-            await db.event.create({
-              data: {
-                instance_id: instanceId,
-                event_type: "DESTROY",
-                metadata: {
-                  triggered_by: "api",
-                  bulk: true,
-                  backup_id: backupId ?? null,
-                  volume_backed_up: options?.backupVolume ?? false,
-                },
-              },
-            });
-            await redis.srem("sindri:agents:active", instanceId).catch(() => {});
-            publishInstanceEvent(instanceId, "destroy", { name: existing.name });
-            await db.instance.delete({ where: { id: instanceId } });
-            return { id: instanceId, name: existing.name, success: true, newStatus: "DESTROYED" };
-          }
-
-          return { id: instanceId, name: existing.name, success: false, error: "Unknown action" };
-        } catch (err) {
-          const errMessage = err instanceof Error ? err.message : "Unknown error";
-          logger.warn({ instanceId, action, err }, "Bulk action failed for instance");
-          return { id: instanceId, name: instanceId, success: false, error: errMessage };
-        }
-      }),
-    );
-
-    const resultList = results.map((r) => {
-      if (r.status === "fulfilled") return r.value;
-      return {
-        id: "unknown",
-        name: "unknown",
-        success: false,
-        error: r.reason instanceof Error ? r.reason.message : "Unexpected error",
-        newStatus: undefined,
-      };
-    });
-
+    const results = await bulkInstanceAction(parseResult.data);
     return c.json({
-      message: `Bulk ${action} completed`,
-      action,
-      results: resultList.map((r) => ({
+      message: `Bulk ${parseResult.data.action} completed`,
+      action: parseResult.data.action,
+      results: results.map((r) => ({
         id: r.id,
         name: r.name,
         success: r.success,
-        error: r.success ? null : r.error,
-        newStatus: r.success ? ((r as { newStatus?: string }).newStatus ?? null) : null,
+        error: r.error ?? null,
+        newStatus: r.newStatus ?? null,
       })),
       summary: {
-        total: resultList.length,
-        succeeded: resultList.filter((r) => r.success).length,
-        failed: resultList.filter((r) => !r.success).length,
+        total: results.length,
+        succeeded: results.filter((r) => r.success).length,
+        failed: results.filter((r) => !r.success).length,
       },
     });
   } catch (err) {
@@ -780,52 +590,37 @@ lifecycle.post("/bulk-action", rateLimitStrict, requireRole("OPERATOR"), async (
   }
 });
 
+// ─── GET /api/v1/instances/:id/lifecycle ─────────────────────────────────────
+
+lifecycle.get("/:id/lifecycle", rateLimitDefault, async (c) => {
+  const id = c.req.param("id");
+  if (!id || id.length > 128) {
+    return c.json({ error: "Bad Request", message: "Invalid instance ID" }, 400);
+  }
+
+  try {
+    const instance = await db.instance.findUnique({
+      where: { id },
+      select: { id: true, status: true },
+    });
+    if (!instance) {
+      return c.json({ error: "Not Found", message: `Instance '${id}' not found` }, 404);
+    }
+
+    const actions = getAvailableActions(instance.status);
+    return c.json({ instanceId: id, status: instance.status, availableActions: actions });
+  } catch (err) {
+    logger.error({ err, instanceId: id }, "Failed to get lifecycle actions");
+    return c.json(
+      { error: "Internal Server Error", message: "Failed to retrieve lifecycle actions" },
+      500,
+    );
+  }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Destroy the instance's infrastructure using the Sindri CLI when available,
- * falling back to direct Docker removal for Docker instances.
- *
- * The Sindri CLI handles provider-specific teardown:
- *   - Docker: docker-compose down + volume cleanup
- *   - Fly.io: fly apps destroy
- *   - E2B:    sandbox delete
- *   - K8s:    kubectl delete deployment
- *   - RunPod: pod termination via API
- *   - Northflank: service deletion via API
- *   - DevPod: devpod delete
- */
-async function destroyInstanceInfra(instanceName: string, provider: string): Promise<void> {
-  if (!isCliConfigured()) {
-    logger.warn(
-      { instanceName, provider },
-      "Sindri CLI not configured — cannot destroy infrastructure",
-    );
-    return;
-  }
-
-  let tmpFile: string | null = null;
-  try {
-    const minimalYaml = [
-      'version: "3.0"',
-      `name: ${instanceName}`,
-      "deployment:",
-      `  provider: ${provider}`,
-    ].join("\n");
-
-    tmpFile = join(tmpdir(), `sindri-destroy-${instanceName}-${Date.now()}.yaml`);
-    await writeFile(tmpFile, minimalYaml, "utf-8");
-
-    await runCliCapture(["destroy", "--force", "--config", tmpFile]);
-    logger.info({ instanceName, provider }, "Instance destroyed via Sindri CLI");
-  } catch (err) {
-    logger.warn({ err, instanceName, provider }, "Sindri CLI destroy failed");
-  } finally {
-    if (tmpFile) await unlink(tmpFile).catch(() => undefined);
-  }
-}
 
 function buildConfigYaml(instance: {
   id: string;

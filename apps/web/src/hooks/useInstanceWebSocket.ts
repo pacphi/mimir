@@ -25,35 +25,33 @@ export function useInstanceWebSocket() {
         const update = msg as InstanceUpdateMessage;
         // Update the specific instance in the cache
         queryClient.setQueryData<{
-          instances: { id: string; status: string; updated_at: string }[];
+          instances: { id: string; status: string; updatedAt: string }[];
         }>(["instances"], (old) => {
           if (!old) return old;
           return {
             ...old,
             instances: old.instances.map((inst) =>
-              inst.id === update.payload.instance_id
-                ? { ...inst, status: update.payload.status, updated_at: update.payload.updated_at }
+              inst.id === update.payload.instanceId
+                ? { ...inst, status: update.payload.status, updatedAt: update.payload.updatedAt }
                 : inst,
             ),
           };
         });
         // Also invalidate the individual instance query
-        void queryClient.invalidateQueries({ queryKey: ["instances", update.payload.instance_id] });
+        void queryClient.invalidateQueries({ queryKey: ["instances", update.payload.instanceId] });
       }
 
       if (msg.type === "heartbeat") {
         const hb = msg as HeartbeatMessage;
         // Update the cached heartbeat for the instance
-        queryClient.setQueryData<{ instances: { id: string; latest_heartbeat: unknown }[] }>(
+        queryClient.setQueryData<{ instances: { id: string; lastHeartbeat: unknown }[] }>(
           ["instances"],
           (old) => {
             if (!old) return old;
             return {
               ...old,
               instances: old.instances.map((inst) =>
-                inst.id === hb.payload.instance_id
-                  ? { ...inst, latest_heartbeat: hb.payload }
-                  : inst,
+                inst.id === hb.payload.instanceId ? { ...inst, lastHeartbeat: hb.payload } : inst,
               ),
             };
           },

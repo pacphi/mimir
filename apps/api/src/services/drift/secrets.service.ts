@@ -176,6 +176,77 @@ export async function rotateSecret(id: string, newValue: string) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Deployment secret helpers (vault-backed)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Store deployment secrets in the vault, encrypted and scoped to the instance.
+ * Uses upsert so redeploys with updated secrets overwrite previous values.
+ * Scope is set to ["deployment"] to distinguish from user-managed secrets.
+ */
+export async function storeDeploymentSecrets(
+  instanceId: string,
+  secrets: Record<string, string>,
+  createdBy?: string,
+): Promise<void> {
+  const entries = Object.entries(secrets);
+  if (entries.length === 0) return;
+
+  await Promise.all(
+    entries.map(async ([name, value]) => {
+      const encryptedVal = encrypt(value);
+      await db.secret.upsert({
+        where: { name_instance_id: { name, instance_id: instanceId } },
+        create: {
+          name,
+          type: "ENV_VAR",
+          instance_id: instanceId,
+          encrypted_val: encryptedVal,
+          scope: ["deployment"],
+          created_by: createdBy ?? null,
+        },
+        update: {
+          encrypted_val: encryptedVal,
+          last_rotated_at: new Date(),
+        },
+      });
+    }),
+  );
+
+  logger.info({ instanceId, count: entries.length }, "Deployment secrets stored in vault");
+}
+
+/**
+ * Resolve deployment secrets from the vault for a given instance.
+ * Returns a plain key→value map of decrypted secrets.
+ * Only returns secrets scoped to "deployment".
+ */
+export async function resolveDeploymentSecrets(
+  instanceId: string,
+): Promise<Record<string, string>> {
+  const secrets = await db.secret.findMany({
+    where: {
+      instance_id: instanceId,
+      scope: { has: "deployment" },
+    },
+  });
+
+  const resolved: Record<string, string> = {};
+  for (const secret of secrets) {
+    try {
+      resolved[secret.name] = decrypt(secret.encrypted_val);
+    } catch (err) {
+      logger.warn(
+        { err, secretId: secret.id, name: secret.name },
+        "Failed to decrypt deployment secret — skipping",
+      );
+    }
+  }
+
+  return resolved;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 

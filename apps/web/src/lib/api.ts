@@ -51,7 +51,7 @@ export const instancesApi = {
   list(filters: InstanceFilters = {}, page = 1, perPage = 20): Promise<InstanceListResponse> {
     const params = new URLSearchParams();
     params.set("page", String(page));
-    params.set("per_page", String(perPage));
+    params.set("pageSize", String(perPage));
     if (filters.provider) params.set("provider", filters.provider);
     if (filters.region) params.set("region", filters.region);
     if (filters.status) params.set("status", filters.status);

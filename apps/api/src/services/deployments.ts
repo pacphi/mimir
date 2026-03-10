@@ -16,6 +16,10 @@ import { redis, REDIS_CHANNELS } from "../lib/redis.js";
 import { logger } from "../lib/logger.js";
 import { runCliCapture, isCliConfigured } from "../lib/cli.js";
 import { isReservedSecretKey } from "../lib/secret-denylist.js";
+import {
+  storeDeploymentSecrets,
+  resolveDeploymentSecrets,
+} from "../services/drift/secrets.service.js";
 
 export interface CreateDeploymentInput {
   name: string;
@@ -28,6 +32,8 @@ export interface CreateDeploymentInput {
   template_id?: string;
   secrets?: Record<string, string>;
   initiated_by?: string;
+  /** Force recreation — tears down existing container/volumes before deploying */
+  force?: boolean;
 }
 
 function hashYaml(yaml: string): string {
@@ -95,6 +101,33 @@ export async function getDeploymentById(id: string): Promise<Deployment | null> 
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Extract secret names from the `secrets:` block in the YAML.
+ * Looks for entries like `- name: GITHUB_TOKEN` with `source: env`.
+ */
+function parseSecretNamesFromYaml(yaml: string): string[] {
+  const names: string[] = [];
+  const lines = yaml.split("\n");
+  let inSecrets = false;
+
+  for (const line of lines) {
+    if (/^secrets:\s*$/.test(line)) {
+      inSecrets = true;
+      continue;
+    }
+    if (inSecrets) {
+      const nameMatch = line.match(/^\s+-\s+name:\s+(\S+)/);
+      if (nameMatch) {
+        names.push(nameMatch[1]);
+      } else if (line.trim() !== "" && !line.match(/^\s+(source|name):/)) {
+        // Reached a different top-level key or non-secret entry
+        if (!line.startsWith(" ") && !line.startsWith("\t")) break;
+      }
+    }
+  }
+  return names;
+}
+
+/**
  * Extract the `extensions:` array from a YAML string.
  * Uses simple line parsing — no YAML library needed for this flat list.
  */
@@ -136,17 +169,38 @@ function ensureDraupnir(extensions: string[]): string[] {
   return [...extensions, "draupnir"].sort((a, b) => a.localeCompare(b));
 }
 
-const CONSOLE_BLOCK = [
-  "",
-  "console:",
-  `  endpoint: ${process.env.SINDRI_CONSOLE_URL ?? "http://localhost:3001"}`,
-  `  api_key: ${process.env.SINDRI_CONSOLE_API_KEY ?? ""}`,
-  "  heartbeat_interval: 30s",
-].join("\n");
+function buildConsoleBlock(): string {
+  return [
+    "",
+    "console:",
+    `  endpoint: ${resolveConsoleUrl()}`,
+    `  api_key: ${process.env.SINDRI_CONSOLE_API_KEY ?? ""}`,
+    "  heartbeat_interval: 30s",
+  ].join("\n");
+}
+
+/**
+ * Resolve the console endpoint URL, accounting for Docker networking.
+ * When running on macOS/Windows and deploying to Docker, the container cannot
+ * reach the host via `localhost`. We rewrite to `host.docker.internal`.
+ */
+function resolveConsoleUrl(): string {
+  const raw = process.env.SINDRI_CONSOLE_URL ?? "http://localhost:3001";
+  try {
+    const url = new URL(raw);
+    if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
+      url.hostname = "host.docker.internal";
+      return url.toString().replace(/\/$/, "");
+    }
+  } catch {
+    // Not a valid URL — return as-is
+  }
+  return raw;
+}
 
 /** Resolve console placeholders and ensure the console block exists. */
 function resolveConsolePlaceholders(yaml: string): string {
-  const consoleUrl = process.env.SINDRI_CONSOLE_URL ?? "http://localhost:3001";
+  const consoleUrl = resolveConsoleUrl();
   const consoleApiKey = process.env.SINDRI_CONSOLE_API_KEY ?? "";
 
   let resolved = yaml
@@ -155,7 +209,7 @@ function resolveConsolePlaceholders(yaml: string): string {
 
   // If there's no console: block at all, append one
   if (!/^console:/m.test(resolved)) {
-    resolved = resolved.trimEnd() + "\n" + CONSOLE_BLOCK + "\n";
+    resolved = resolved.trimEnd() + "\n" + buildConsoleBlock() + "\n";
   }
 
   return resolved;
@@ -222,6 +276,24 @@ function resolveSystemSecrets(yaml: string): string {
       /^(deployment:\s*\n\s+provider:\s+.+)$/m,
       `$1\n  image: ${defaultImage}`,
     );
+  }
+
+  // Inject SINDRI_CONSOLE_URL and SINDRI_CONSOLE_API_KEY into the secrets block
+  // so the Sindri CLI passes them as container env vars. Draupnir reads these
+  // from the environment to connect back to Mimir.
+  const consoleSecrets = [
+    "  - name: SINDRI_CONSOLE_URL",
+    "    source: env",
+    "  - name: SINDRI_CONSOLE_API_KEY",
+    "    source: env",
+  ].join("\n");
+
+  if (/^secrets:/m.test(resolved)) {
+    // Append to existing secrets block
+    resolved = resolved.replace(/^(secrets:)/m, `$1\n${consoleSecrets}`);
+  } else {
+    // Create new secrets block
+    resolved = resolved.trimEnd() + "\n\nsecrets:\n" + consoleSecrets + "\n";
   }
 
   return resolved;
@@ -350,16 +422,43 @@ async function runProvisioningFlow(
     tmpFile = join(tmpdir(), `sindri-deploy-${deploymentId}.yaml`);
     await writeFile(tmpFile, resolvedYaml, "utf-8");
 
+    // ── Resolve secrets ───────────────────────────────────────────────────────
+    // Priority: 1) caller-supplied values (from wizard), 2) vault (from prior
+    // deploy), 3) server env vars. Secrets are passed ONLY via subprocess env
+    // — never written to disk.
+    const secretNames = parseSecretNamesFromYaml(resolvedYaml);
+    const resolvedSecrets: Record<string, string> = {};
+
+    // Look up existing instance for vault resolution
+    const existingInstance = await db.instance.findFirst({
+      where: { name: input.name },
+      select: { id: true },
+    });
+    const vaultSecrets = existingInstance
+      ? await resolveDeploymentSecrets(existingInstance.id)
+      : {};
+
+    for (const name of secretNames) {
+      const value = input.secrets?.[name] ?? vaultSecrets[name] ?? process.env[name];
+      if (value) resolvedSecrets[name] = value;
+    }
+
+    // Always inject console connectivity env vars so draupnir can reach Mimir.
+    // These are required by the draupnir agent inside the container.
+    const consoleUrl = resolveConsoleUrl();
+    const consoleApiKey = process.env.SINDRI_CONSOLE_API_KEY ?? "";
+    resolvedSecrets.SINDRI_CONSOLE_URL = consoleUrl;
+    if (consoleApiKey) resolvedSecrets.SINDRI_CONSOLE_API_KEY = consoleApiKey;
+
     // ── Run sindri deploy ─────────────────────────────────────────────────────
-    // Secrets are passed as env vars so YAML `secrets: [{source: env}]` entries resolve.
-    // They are never written to disk.
+    // Secrets are passed as subprocess env vars — the Sindri CLI reads them
+    // directly from the environment (source: env). No temp file on disk.
     await emitProgress(deploymentId, "Running sindri deploy...", { progress_percent: 40 });
     appendLog("Running sindri deploy...");
 
-    const { stdout, stderr } = await runCliCapture(
-      ["deploy", "--config", tmpFile],
-      input.secrets ?? {},
-    );
+    const cliArgs = ["deploy", "--config", tmpFile, "--skip-validation"];
+    if (input.force) cliArgs.push("--force");
+    const { stdout, stderr } = await runCliCapture(cliArgs, resolvedSecrets);
     if (stdout) appendLog(stdout.trim());
     if (stderr) appendLog(stderr.trim());
 
@@ -384,6 +483,14 @@ async function runProvisioningFlow(
         status: "RUNNING",
       },
     });
+
+    // ── Store secrets in vault (encrypted, instance-scoped) ────────────────
+    // Only stores secrets that were explicitly provided by the caller (not env
+    // fallbacks) to avoid leaking server-side env vars into the vault.
+    if (input.secrets && Object.keys(input.secrets).length > 0) {
+      await storeDeploymentSecrets(instance.id, input.secrets, input.initiated_by);
+      appendLog(`Stored ${Object.keys(input.secrets).length} secret(s) in vault.`);
+    }
 
     appendLog("Instance is online and ready.");
 

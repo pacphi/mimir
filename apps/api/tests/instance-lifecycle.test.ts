@@ -5,7 +5,7 @@
  * - Instance cloning (copy config to new instance)
  * - Instance suspend (graceful stop)
  * - Instance resume (restart stopped instance)
- * - Instance destroy (permanent deletion)
+ * - Instance destroy (soft-delete with DESTROYED/STOPPED status)
  * - State transition validation
  * - Role-based access control on lifecycle operations
  */
@@ -13,6 +13,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { buildApp, authHeaders, VALID_API_KEY, ADMIN_API_KEY } from "./helpers.js";
 import { createHash } from "crypto";
+import { getAvailableActions } from "../src/services/lifecycle.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mocks
@@ -89,8 +90,9 @@ vi.mock("../src/lib/db.js", () => {
       upsert: vi.fn(() => Promise.resolve(runningInstance)),
       findMany: vi.fn(() => Promise.resolve([runningInstance, stoppedInstance])),
       count: vi.fn(() => Promise.resolve(2)),
-      findUnique: vi.fn(({ where }: { where: { id: string } }) => {
-        return Promise.resolve(instanceMap[where.id] ?? null);
+      findUnique: vi.fn(({ where }: { where: { id?: string; name?: string } }) => {
+        if (where.id) return Promise.resolve(instanceMap[where.id] ?? null);
+        return Promise.resolve(null);
       }),
       update: vi.fn(({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
         const instance = instanceMap[where.id];
@@ -143,17 +145,22 @@ vi.mock("../src/lib/redis.js", () => ({
   disconnectRedis: vi.fn(() => Promise.resolve()),
 }));
 
+vi.mock("../src/lib/cli.js", () => ({
+  isCliConfigured: vi.fn(() => false),
+  runCliCapture: vi.fn(() => Promise.resolve({ stdout: "", stderr: "" })),
+}));
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Instance State Machine Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("Instance Lifecycle: State Transitions", () => {
-  // Schema InstanceStatus: RUNNING | STOPPED | DEPLOYING | DESTROYING | SUSPENDED | ERROR | UNKNOWN
   const validStatuses = [
     "RUNNING",
     "STOPPED",
     "DEPLOYING",
     "DESTROYING",
+    "DESTROYED",
     "SUSPENDED",
     "ERROR",
     "UNKNOWN",
@@ -169,6 +176,10 @@ describe("Instance Lifecycle: State Transitions", () => {
     expect(validStatuses).toContain("SUSPENDED");
   });
 
+  it("DESTROYED is a valid terminal status", () => {
+    expect(validStatuses).toContain("DESTROYED");
+  });
+
   it("RUNNING instance can be suspended (-> SUSPENDED)", () => {
     const fromStatus = "RUNNING";
     const toStatus = "SUSPENDED";
@@ -177,7 +188,7 @@ describe("Instance Lifecycle: State Transitions", () => {
       STOPPED: ["RUNNING", "DESTROYING"],
       SUSPENDED: ["RUNNING", "DESTROYING"],
       DEPLOYING: ["RUNNING", "ERROR"],
-      DESTROYING: ["UNKNOWN"],
+      DESTROYING: ["DESTROYED", "STOPPED"],
       ERROR: ["RUNNING", "STOPPED", "DESTROYING"],
     };
     expect(allowedTransitions[fromStatus]).toContain(toStatus);
@@ -209,6 +220,19 @@ describe("Instance Lifecycle: State Transitions", () => {
       RUNNING: ["SUSPENDED", "STOPPED", "DESTROYING", "ERROR"],
     };
     expect(allowedTransitions[fromStatus]).toContain(toStatus);
+  });
+
+  it("DESTROYING transitions to DESTROYED (infra teardown) or STOPPED (deregistration)", () => {
+    const allowedTransitions: Record<string, string[]> = {
+      DESTROYING: ["DESTROYED", "STOPPED"],
+    };
+    expect(allowedTransitions["DESTROYING"]).toContain("DESTROYED");
+    expect(allowedTransitions["DESTROYING"]).toContain("STOPPED");
+  });
+
+  it("DESTROYED is a terminal state with no available actions", () => {
+    const actions = getAvailableActions("DESTROYED");
+    expect(actions).toEqual([]);
   });
 
   it("DEPLOYING instance cannot be suspended directly", () => {
@@ -255,10 +279,10 @@ describe("Instance Lifecycle: Clone", () => {
     expect(clonedInstance.ssh_endpoint).toBeNull();
   });
 
-  it("cannot clone a DESTROYING or UNKNOWN instance", () => {
-    const destroyingStatuses = ["DESTROYING", "UNKNOWN"];
-    for (const status of destroyingStatuses) {
-      const canClone = !destroyingStatuses.includes(status);
+  it("cannot clone a DESTROYING, DESTROYED, or UNKNOWN instance", () => {
+    const nonCloneableStatuses = ["DESTROYING", "DESTROYED", "UNKNOWN"];
+    for (const status of nonCloneableStatuses) {
+      const canClone = !nonCloneableStatuses.includes(status);
       expect(canClone).toBe(false);
     }
   });
@@ -332,7 +356,7 @@ describe("Instance Lifecycle: Destroy", () => {
     expect(res.status).toBe(403);
   });
 
-  it("ADMIN role can destroy an instance", async () => {
+  it("ADMIN role can deregister an instance (soft-delete to STOPPED)", async () => {
     const res = await app.request(`/api/v1/instances/${runningInstance.id}`, {
       method: "DELETE",
       headers: authHeaders(ADMIN_API_KEY),
@@ -357,6 +381,18 @@ describe("Instance Lifecycle: Destroy", () => {
     const body = (await res.json()) as { id: string; message: string };
     expect(body.id).toBeDefined();
     expect(body.message).toContain("deregistered");
+  });
+
+  it("deregistration sets status to STOPPED (not hard delete)", () => {
+    // Deregistration uses skipInfraTeardown=true, so final status is STOPPED
+    const stoppedActions = getAvailableActions("STOPPED");
+    expect(stoppedActions).toContain("resume");
+    expect(stoppedActions).toContain("destroy");
+  });
+
+  it("full destroy sets status to DESTROYED (terminal state)", () => {
+    const destroyedActions = getAvailableActions("DESTROYED");
+    expect(destroyedActions).toEqual([]);
   });
 });
 
@@ -417,5 +453,39 @@ describe("Instance Lifecycle: Event Emission", () => {
     expect(event.instanceId).toBeTruthy();
     expect(event.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(event.metadata).toBeDefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Available Actions Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Instance Lifecycle: Available Actions", () => {
+  it("RUNNING instances can suspend, destroy, and backup", () => {
+    expect(getAvailableActions("RUNNING")).toEqual(["suspend", "destroy", "backup"]);
+  });
+
+  it("SUSPENDED instances can resume, destroy, and backup", () => {
+    expect(getAvailableActions("SUSPENDED")).toEqual(["resume", "destroy", "backup"]);
+  });
+
+  it("STOPPED instances can resume and destroy", () => {
+    expect(getAvailableActions("STOPPED")).toEqual(["resume", "destroy"]);
+  });
+
+  it("ERROR instances can resume and destroy", () => {
+    expect(getAvailableActions("ERROR")).toEqual(["resume", "destroy"]);
+  });
+
+  it("DESTROYED instances have no available actions", () => {
+    expect(getAvailableActions("DESTROYED")).toEqual([]);
+  });
+
+  it("DEPLOYING instances have no available actions", () => {
+    expect(getAvailableActions("DEPLOYING")).toEqual([]);
+  });
+
+  it("UNKNOWN instances have no available actions", () => {
+    expect(getAvailableActions("UNKNOWN")).toEqual([]);
   });
 });

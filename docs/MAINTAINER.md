@@ -92,6 +92,7 @@ The Dockerfile downloads the tarball from GitHub Releases. This doesn't work for
 | `make infra-up`     | Start postgres + redis containers only                    |
 | `make infra-down`   | Stop infrastructure                                       |
 | `make infra-status` | Show infrastructure container status                      |
+| `make infra-reset`  | Nuke postgres + redis volumes, restart containers         |
 
 ### Full Stack (Docker Compose)
 

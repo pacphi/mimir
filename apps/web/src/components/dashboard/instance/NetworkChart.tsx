@@ -10,7 +10,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import type { TimeRange } from "@/types/metrics";
-import { useMetricsTimeSeries, useMetricsStream } from "@/hooks/useMetrics";
+import { useMetricsTimeSeries, type RealtimePoints } from "@/hooks/useMetrics";
 import {
   CHART_COLORS,
   TIME_RANGE_CONFIGS,
@@ -25,12 +25,17 @@ import { cn } from "@/lib/utils";
 interface NetworkChartProps {
   instanceId: string;
   timeRange: TimeRange;
+  realtimePoints: RealtimePoints;
   className?: string;
 }
 
-export function NetworkChart({ instanceId, timeRange, className }: NetworkChartProps) {
+export function NetworkChart({
+  instanceId,
+  timeRange,
+  realtimePoints,
+  className,
+}: NetworkChartProps) {
   const { data: historical, isLoading } = useMetricsTimeSeries(instanceId, timeRange);
-  const realtimePoints = useMetricsStream(instanceId);
   const config = TIME_RANGE_CONFIGS[timeRange];
 
   const historicalIn = useMemo(

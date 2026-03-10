@@ -414,7 +414,7 @@ commands.get("/history", rateLimitDefault, async (c) => {
 // ─── GET /api/v1/commands/:id ─────────────────────────────────────────────────
 
 commands.get("/:id", rateLimitDefault, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   if (!id || id.length > 128) {
     return c.json({ error: "Bad Request", message: "Invalid execution ID" }, 400);
   }

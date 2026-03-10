@@ -58,7 +58,7 @@ mimir/
 
 | Layer           | Technology                                                | Version |
 | --------------- | --------------------------------------------------------- | ------- |
-| Framework       | [Hono](https://hono.dev/)                                 | 4.11    |
+| Framework       | [Hono](https://hono.dev/)                                 | 4.12    |
 | ORM             | [Prisma](https://www.prisma.io/)                          | 7.4     |
 | Database        | [TimescaleDB](https://www.timescale.com/) (PostgreSQL 16) | —       |
 | Cache / Pub-Sub | [Redis](https://redis.io/) (ioredis)                      | 7       |
@@ -73,15 +73,15 @@ mimir/
 | ------------- | ----------------------------------------------------------- | ------- |
 | UI Framework  | [React](https://react.dev/)                                 | 19      |
 | Build Tool    | [Vite](https://vite.dev/)                                   | 7.3     |
-| Routing       | [TanStack Router](https://tanstack.com/router)              | 1.162   |
+| Routing       | [TanStack Router](https://tanstack.com/router)              | 1.166   |
 | Data Fetching | [TanStack Query](https://tanstack.com/query)                | 5.67    |
 | State         | [Zustand](https://zustand-demo.pmnd.rs/)                    | 5.0     |
 | Terminal      | [@xterm/xterm](https://xtermjs.org/)                        | 6.0     |
-| Charts        | [Recharts](https://recharts.org/)                           | 3.7     |
+| Charts        | [Recharts](https://recharts.org/)                           | 3.8     |
 | Code Editor   | [Monaco Editor](https://microsoft.github.io/monaco-editor/) | 0.55    |
 | CSS           | [Tailwind CSS](https://tailwindcss.com/)                    | 4.0     |
 | Components    | [Radix UI](https://www.radix-ui.com/)                       | —       |
-| Icons         | [Lucide](https://lucide.dev/)                               | 0.575   |
+| Icons         | [Lucide](https://lucide.dev/)                               | 0.577   |
 
 ### Build & Tooling
 
@@ -94,7 +94,7 @@ mimir/
 | [Prettier](https://prettier.io/) 3.8              | Code formatting             |
 | [Vitest](https://vitest.dev/) 4.0                 | Test runner                 |
 | [Husky](https://typicode.github.io/husky/) 9      | Git hooks                   |
-| [knip](https://knip.dev/) 5.85                    | Dead code detection         |
+| [knip](https://knip.dev/) 5.86                    | Dead code detection         |
 
 ## Background Workers
 

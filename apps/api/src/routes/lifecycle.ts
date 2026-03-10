@@ -56,7 +56,7 @@ lifecycle.use("*", authMiddleware);
 // ─── POST /api/v1/instances/:id/suspend ──────────────────────────────────────
 
 lifecycle.post("/:id/suspend", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   if (!id || id.length > 128) {
     return c.json({ error: "Bad Request", message: "Invalid instance ID" }, 400);
   }
@@ -84,7 +84,7 @@ lifecycle.post("/:id/suspend", rateLimitStrict, requireRole("OPERATOR"), async (
 // ─── POST /api/v1/instances/:id/resume ───────────────────────────────────────
 
 lifecycle.post("/:id/resume", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   if (!id || id.length > 128) {
     return c.json({ error: "Bad Request", message: "Invalid instance ID" }, 400);
   }
@@ -112,7 +112,7 @@ lifecycle.post("/:id/resume", rateLimitStrict, requireRole("OPERATOR"), async (c
 // ─── DELETE /api/v1/instances/:id ────────────────────────────────────────────
 
 lifecycle.delete("/:id", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   if (!id || id.length > 128) {
     return c.json({ error: "Bad Request", message: "Invalid instance ID" }, 400);
   }
@@ -157,7 +157,7 @@ lifecycle.delete("/:id", rateLimitStrict, requireRole("OPERATOR"), async (c) => 
 // ─── POST /api/v1/instances/:id/backup ───────────────────────────────────────
 
 lifecycle.post("/:id/backup", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   if (!id || id.length > 128) {
     return c.json({ error: "Bad Request", message: "Invalid instance ID" }, 400);
   }
@@ -259,7 +259,7 @@ lifecycle.post("/bulk-action", rateLimitStrict, requireRole("OPERATOR"), async (
 // Returns available lifecycle actions for an instance based on its current status
 
 lifecycle.get("/:id/lifecycle", rateLimitDefault, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   if (!id || id.length > 128) {
     return c.json({ error: "Bad Request", message: "Invalid instance ID" }, 400);
   }

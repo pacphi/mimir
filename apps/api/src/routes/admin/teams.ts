@@ -150,7 +150,7 @@ router.post("/", rateLimitStrict, async (c) => {
 // ─── GET /api/v1/admin/teams/:id ─────────────────────────────────────────────
 
 router.get("/:id", rateLimitDefault, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   try {
     const team = await getTeamById(id);
     if (!team) {
@@ -166,7 +166,7 @@ router.get("/:id", rateLimitDefault, async (c) => {
 // ─── PUT /api/v1/admin/teams/:id ─────────────────────────────────────────────
 
 router.put("/:id", rateLimitStrict, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   let body: unknown;
   try {
     body = await c.req.json();
@@ -212,7 +212,7 @@ router.put("/:id", rateLimitStrict, async (c) => {
 // ─── DELETE /api/v1/admin/teams/:id ──────────────────────────────────────────
 
 router.delete("/:id", rateLimitStrict, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   try {
     const team = await deleteTeam(id);
     if (!team) {
@@ -236,7 +236,7 @@ router.delete("/:id", rateLimitStrict, async (c) => {
 // ─── POST /api/v1/admin/teams/:id/members ────────────────────────────────────
 
 router.post("/:id/members", rateLimitStrict, async (c) => {
-  const teamId = c.req.param("id");
+  const teamId = c.req.param("id")!;
   let body: unknown;
   try {
     body = await c.req.json();
@@ -291,8 +291,8 @@ router.post("/:id/members", rateLimitStrict, async (c) => {
 // ─── DELETE /api/v1/admin/teams/:id/members/:userId ──────────────────────────
 
 router.delete("/:id/members/:userId", rateLimitStrict, async (c) => {
-  const teamId = c.req.param("id");
-  const userId = c.req.param("userId");
+  const teamId = c.req.param("id")!;
+  const userId = c.req.param("userId")!;
   try {
     const member = await removeTeamMember(teamId, userId);
     if (!member) {
@@ -316,8 +316,8 @@ router.delete("/:id/members/:userId", rateLimitStrict, async (c) => {
 // ─── PUT /api/v1/admin/teams/:id/members/:userId/role ────────────────────────
 
 router.put("/:id/members/:userId/role", rateLimitStrict, async (c) => {
-  const teamId = c.req.param("id");
-  const userId = c.req.param("userId");
+  const teamId = c.req.param("id")!;
+  const userId = c.req.param("userId")!;
   let body: unknown;
   try {
     body = await c.req.json();
@@ -361,7 +361,7 @@ router.put("/:id/members/:userId/role", rateLimitStrict, async (c) => {
 // ─── GET /api/v1/admin/teams/:id/instances ───────────────────────────────────
 
 router.get("/:id/instances", rateLimitDefault, async (c) => {
-  const teamId = c.req.param("id");
+  const teamId = c.req.param("id")!;
   try {
     const instances = await getTeamInstances(teamId);
     return c.json({
@@ -381,8 +381,8 @@ router.get("/:id/instances", rateLimitDefault, async (c) => {
 // ─── POST /api/v1/admin/teams/:id/instances/:instanceId ──────────────────────
 
 router.post("/:id/instances/:instanceId", rateLimitStrict, async (c) => {
-  const teamId = c.req.param("id");
-  const instanceId = c.req.param("instanceId");
+  const teamId = c.req.param("id")!;
+  const instanceId = c.req.param("instanceId")!;
   try {
     await assignInstanceToTeam(instanceId, teamId);
     const auth = c.get("auth");
@@ -407,8 +407,8 @@ router.post("/:id/instances/:instanceId", rateLimitStrict, async (c) => {
 // ─── DELETE /api/v1/admin/teams/:id/instances/:instanceId ────────────────────
 
 router.delete("/:id/instances/:instanceId", rateLimitStrict, async (c) => {
-  const teamId = c.req.param("id");
-  const instanceId = c.req.param("instanceId");
+  const teamId = c.req.param("id")!;
+  const instanceId = c.req.param("instanceId")!;
   try {
     await assignInstanceToTeam(instanceId, null);
     const auth = c.get("auth");

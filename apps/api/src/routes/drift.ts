@@ -100,7 +100,7 @@ driftRouter.get("/snapshots", rateLimitDefault, async (c) => {
 });
 
 driftRouter.get("/snapshots/:id", rateLimitDefault, async (c) => {
-  const snapshot = await getSnapshotById(c.req.param("id"));
+  const snapshot = await getSnapshotById(c.req.param("id")!);
   if (!snapshot) return c.json({ error: "Not Found", message: "Snapshot not found" }, 404);
   return c.json(snapshot);
 });
@@ -112,7 +112,7 @@ driftRouter.post(
   rateLimitStrict,
   requireRole("OPERATOR"),
   async (c) => {
-    const instanceId = c.req.param("instanceId");
+    const instanceId = c.req.param("instanceId")!;
     try {
       const [declared, actual] = await Promise.all([
         buildDeclaredConfigFromInstance(instanceId),
@@ -155,14 +155,14 @@ driftRouter.get("/events", rateLimitDefault, async (c) => {
 
 driftRouter.post("/events/:id/resolve", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
   const auth = c.get("auth");
-  const event = await resolveDriftEvent(c.req.param("id"), `user:${auth.userId}`);
+  const event = await resolveDriftEvent(c.req.param("id")!, `user:${auth.userId}`);
   if (!event) return c.json({ error: "Not Found", message: "Drift event not found" }, 404);
   return c.json(event);
 });
 
 driftRouter.post("/events/:id/remediate", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
   const auth = c.get("auth");
-  const remediation = await createRemediation(c.req.param("id"), auth.userId);
+  const remediation = await createRemediation(c.req.param("id")!, auth.userId);
   if (!remediation) return c.json({ error: "Not Found", message: "Drift event not found" }, 404);
   return c.json(remediation, 201);
 });
@@ -175,12 +175,12 @@ driftRouter.post(
   requireRole("OPERATOR"),
   async (c) => {
     try {
-      const remediation = await executeRemediation(c.req.param("id"));
+      const remediation = await executeRemediation(c.req.param("id")!);
       if (!remediation)
         return c.json({ error: "Not Found", message: "Remediation not found" }, 404);
       return c.json(remediation);
     } catch (err) {
-      logger.error({ err, remediationId: c.req.param("id") }, "Remediation execution failed");
+      logger.error({ err, remediationId: c.req.param("id")! }, "Remediation execution failed");
       return c.json({ error: "Internal Server Error", message: "Remediation failed" }, 500);
     }
   },
@@ -191,7 +191,7 @@ driftRouter.post(
   rateLimitStrict,
   requireRole("OPERATOR"),
   async (c) => {
-    const remediation = await dismissRemediation(c.req.param("id"));
+    const remediation = await dismissRemediation(c.req.param("id")!);
     if (!remediation) return c.json({ error: "Not Found", message: "Remediation not found" }, 404);
     return c.json(remediation);
   },
@@ -200,7 +200,7 @@ driftRouter.post(
 // ── Per-instance latest snapshot ───────────────────────────────────────────
 
 driftRouter.get("/instances/:instanceId/latest", rateLimitDefault, async (c) => {
-  const snapshot = await getLatestSnapshotForInstance(c.req.param("instanceId"));
+  const snapshot = await getLatestSnapshotForInstance(c.req.param("instanceId")!);
   if (!snapshot) {
     return c.json({ error: "Not Found", message: "No snapshot found for this instance" }, 404);
   }

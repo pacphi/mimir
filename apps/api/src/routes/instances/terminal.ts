@@ -18,7 +18,7 @@ terminalRouter.use("*", authMiddleware);
 
 // ── Create terminal session ──────────────────────────────────────────────────
 terminalRouter.post("/:id/terminal", rateLimitStrict, async (c) => {
-  const instanceId = c.req.param("id");
+  const instanceId = c.req.param("id")!;
   const auth = c.get("auth");
 
   // Verify instance exists
@@ -51,7 +51,7 @@ terminalRouter.post("/:id/terminal", rateLimitStrict, async (c) => {
 
 // ── Close terminal session ───────────────────────────────────────────────────
 terminalRouter.delete("/:id/terminal/:sessionId", rateLimitStrict, async (c) => {
-  const sessionId = c.req.param("sessionId");
+  const sessionId = c.req.param("sessionId")!;
 
   try {
     await closeTerminalSession(sessionId, "user_closed");

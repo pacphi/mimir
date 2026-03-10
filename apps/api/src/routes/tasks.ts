@@ -146,7 +146,7 @@ tasks.post("/", rateLimitStrict, async (c) => {
 // ─── GET /api/v1/tasks/:id ───────────────────────────────────────────────────
 
 tasks.get("/:id", rateLimitDefault, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
 
   try {
     const task = await getTaskById(id);
@@ -161,7 +161,7 @@ tasks.get("/:id", rateLimitDefault, async (c) => {
 // ─── PUT /api/v1/tasks/:id ───────────────────────────────────────────────────
 
 tasks.put("/:id", rateLimitStrict, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
 
   let body: unknown;
   try {
@@ -195,7 +195,7 @@ tasks.put("/:id", rateLimitStrict, async (c) => {
 // ─── DELETE /api/v1/tasks/:id ────────────────────────────────────────────────
 
 tasks.delete("/:id", rateLimitStrict, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
 
   try {
     const task = await deleteTask(id);
@@ -210,7 +210,7 @@ tasks.delete("/:id", rateLimitStrict, async (c) => {
 // ─── POST /api/v1/tasks/:id/pause ────────────────────────────────────────────
 
 tasks.post("/:id/pause", rateLimitStrict, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
 
   try {
     const task = await pauseTask(id);
@@ -225,7 +225,7 @@ tasks.post("/:id/pause", rateLimitStrict, async (c) => {
 // ─── POST /api/v1/tasks/:id/resume ───────────────────────────────────────────
 
 tasks.post("/:id/resume", rateLimitStrict, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
 
   try {
     const task = await resumeTask(id);
@@ -240,7 +240,7 @@ tasks.post("/:id/resume", rateLimitStrict, async (c) => {
 // ─── POST /api/v1/tasks/:id/trigger ──────────────────────────────────────────
 
 tasks.post("/:id/trigger", rateLimitStrict, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
 
   try {
     const execution = await triggerTask(id);
@@ -255,7 +255,7 @@ tasks.post("/:id/trigger", rateLimitStrict, async (c) => {
 // ─── GET /api/v1/tasks/:id/history ───────────────────────────────────────────
 
 tasks.get("/:id/history", rateLimitDefault, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
 
   const q = ListExecutionsQuerySchema.safeParse(
     Object.fromEntries(new URL(c.req.url).searchParams),

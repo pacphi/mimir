@@ -217,7 +217,7 @@ templates.post("/", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
 // ─── GET /api/v1/templates/:idOrSlug ─────────────────────────────────────────
 
 templates.get("/:idOrSlug", rateLimitDefault, async (c) => {
-  const idOrSlug = c.req.param("idOrSlug");
+  const idOrSlug = c.req.param("idOrSlug")!;
   if (!idOrSlug || idOrSlug.length > 128) {
     return c.json({ error: "Bad Request", message: "Invalid template identifier" }, 400);
   }
@@ -242,7 +242,7 @@ templates.get("/:idOrSlug", rateLimitDefault, async (c) => {
 // ─── DELETE /api/v1/templates/:id ────────────────────────────────────────────
 
 templates.delete("/:id", rateLimitStrict, requireRole("ADMIN"), async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   if (!id || id.length > 128) {
     return c.json({ error: "Bad Request", message: "Invalid template ID" }, 400);
   }

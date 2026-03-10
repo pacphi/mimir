@@ -120,7 +120,7 @@ secretsRouter.post("/", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
 });
 
 secretsRouter.get("/:id", rateLimitDefault, async (c) => {
-  const secret = await getSecretById(c.req.param("id"));
+  const secret = await getSecretById(c.req.param("id")!);
   if (!secret) return c.json({ error: "Not Found", message: "Secret not found" }, 404);
   return c.json(secret);
 });
@@ -136,7 +136,7 @@ secretsRouter.put("/:id", rateLimitStrict, requireRole("OPERATOR"), async (c) =>
   if (!parsed.success)
     return c.json({ error: "Bad Request", details: parsed.error.flatten() }, 400);
 
-  const secret = await updateSecret(c.req.param("id"), {
+  const secret = await updateSecret(c.req.param("id")!, {
     ...parsed.data,
     expiresAt: parsed.data.expiresAt ? new Date(parsed.data.expiresAt) : undefined,
   });
@@ -145,7 +145,7 @@ secretsRouter.put("/:id", rateLimitStrict, requireRole("OPERATOR"), async (c) =>
 });
 
 secretsRouter.delete("/:id", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
-  const secret = await deleteSecret(c.req.param("id"));
+  const secret = await deleteSecret(c.req.param("id")!);
   if (!secret) return c.json({ error: "Not Found", message: "Secret not found" }, 404);
   return c.json({ message: "Secret deleted", id: secret.id, name: secret.name });
 });
@@ -161,19 +161,19 @@ secretsRouter.post("/:id/rotate", rateLimitStrict, requireRole("OPERATOR"), asyn
   if (!parsed.success)
     return c.json({ error: "Bad Request", details: parsed.error.flatten() }, 400);
 
-  const secret = await rotateSecret(c.req.param("id"), parsed.data.value);
+  const secret = await rotateSecret(c.req.param("id")!, parsed.data.value);
   if (!secret) return c.json({ error: "Not Found", message: "Secret not found" }, 404);
   return c.json(secret);
 });
 
 // Reveal decrypted value — ADMIN-only, audit-worthy operation
 secretsRouter.get("/:id/value", rateLimitStrict, requireRole("ADMIN"), async (c) => {
-  const value = await getSecretValue(c.req.param("id"));
+  const value = await getSecretValue(c.req.param("id")!);
   if (value === null) return c.json({ error: "Not Found", message: "Secret not found" }, 404);
 
   const auth = c.get("auth");
   logger.warn(
-    { secretId: c.req.param("id"), userId: auth.userId },
+    { secretId: c.req.param("id")!, userId: auth.userId },
     "Secret value revealed (audit)",
   );
 

@@ -291,7 +291,7 @@ instanceMetrics.use("*", authMiddleware);
 // ─── GET /api/v1/instances/:id/metrics ───────────────────────────────────────
 
 instanceMetrics.get("/:id/metrics", rateLimitDefault, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   if (!id || id.length > 128) {
     return c.json({ error: "Bad Request", message: "Invalid instance ID" }, 400);
   }
@@ -360,7 +360,7 @@ instanceMetrics.get("/:id/metrics", rateLimitDefault, async (c) => {
 // Agents are expected to embed process info in heartbeat metadata JSON.
 
 instanceMetrics.get("/:id/processes", rateLimitDefault, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   if (!id || id.length > 128) {
     return c.json({ error: "Bad Request", message: "Invalid instance ID" }, 400);
   }
@@ -402,7 +402,7 @@ instanceMetrics.get("/:id/processes", rateLimitDefault, async (c) => {
 // ─── GET /api/v1/instances/:id/extensions ────────────────────────────────────
 
 instanceMetrics.get("/:id/extensions", rateLimitDefault, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   if (!id || id.length > 128) {
     return c.json({ error: "Bad Request", message: "Invalid instance ID" }, 400);
   }
@@ -437,7 +437,7 @@ instanceMetrics.get("/:id/extensions", rateLimitDefault, async (c) => {
 // ─── GET /api/v1/instances/:id/events ────────────────────────────────────────
 
 instanceMetrics.get("/:id/events", rateLimitDefault, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   if (!id || id.length > 128) {
     return c.json({ error: "Bad Request", message: "Invalid instance ID" }, 400);
   }

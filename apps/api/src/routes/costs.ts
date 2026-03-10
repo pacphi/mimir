@@ -208,7 +208,7 @@ costsRouter.get("/instances/:id", rateLimitDefault, async (c) => {
   const from = q.from ? new Date(q.from) : new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000);
 
   try {
-    const breakdown = await getInstanceCostBreakdown(c.req.param("id"), from, to);
+    const breakdown = await getInstanceCostBreakdown(c.req.param("id")!, from, to);
     if (!breakdown) return c.json({ error: "Not Found", message: "Instance not found" }, 404);
     return c.json(breakdown);
   } catch (err) {
@@ -247,7 +247,7 @@ costsRouter.post("/budgets", rateLimitStrict, requireRole("OPERATOR"), async (c)
 });
 
 costsRouter.get("/budgets/:id", rateLimitDefault, async (c) => {
-  const budget = await getBudgetById(c.req.param("id"));
+  const budget = await getBudgetById(c.req.param("id")!);
   if (!budget) return c.json({ error: "Not Found", message: "Budget not found" }, 404);
   return c.json(budget);
 });
@@ -263,13 +263,13 @@ costsRouter.put("/budgets/:id", rateLimitStrict, requireRole("OPERATOR"), async 
   if (!parsed.success)
     return c.json({ error: "Bad Request", details: parsed.error.flatten() }, 400);
 
-  const budget = await updateBudget(c.req.param("id"), parsed.data);
+  const budget = await updateBudget(c.req.param("id")!, parsed.data);
   if (!budget) return c.json({ error: "Not Found", message: "Budget not found" }, 404);
   return c.json(budget);
 });
 
 costsRouter.delete("/budgets/:id", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
-  const result = await deleteBudget(c.req.param("id"));
+  const result = await deleteBudget(c.req.param("id")!);
   if (!result) return c.json({ error: "Not Found", message: "Budget not found" }, 404);
   return c.json({ message: "Budget deleted", id: result.id, name: result.name });
 });
@@ -291,7 +291,7 @@ costsRouter.post(
   rateLimitStrict,
   requireRole("OPERATOR"),
   async (c) => {
-    const rec = await dismissRecommendation(c.req.param("id"));
+    const rec = await dismissRecommendation(c.req.param("id")!);
     if (!rec) return c.json({ error: "Not Found", message: "Recommendation not found" }, 404);
     return c.json(rec);
   },
@@ -332,7 +332,7 @@ costsRouter.patch("/budgets/:id", rateLimitStrict, requireRole("OPERATOR"), asyn
   const parsed = UpdateBudgetSchemaPatch.safeParse(body);
   if (!parsed.success)
     return c.json({ error: "Bad Request", details: parsed.error.flatten() }, 400);
-  const budget = await updateBudget(c.req.param("id"), parsed.data);
+  const budget = await updateBudget(c.req.param("id")!, parsed.data);
   if (!budget) return c.json({ error: "Not Found", message: "Budget not found" }, 404);
   return c.json(budget);
 });
@@ -434,7 +434,7 @@ costsRouter.get("/llm/trends", rateLimitDefault, async (c) => {
 
 costsRouter.get("/llm/instances/:id", rateLimitDefault, async (c) => {
   try {
-    const instanceId = c.req.param("id");
+    const instanceId = c.req.param("id")!;
     const params = DateRangeSchema.parse(Object.fromEntries(new URL(c.req.url).searchParams));
     const now = new Date();
     const from = params.from ? new Date(params.from) : new Date(now.getTime() - 30 * 86400_000);

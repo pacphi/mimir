@@ -169,7 +169,7 @@ security.get("/vulnerabilities", rateLimitDefault, async (c) => {
 // ─── GET /api/v1/security/vulnerabilities/:id ────────────────────────────────
 
 security.get("/vulnerabilities/:id", rateLimitDefault, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   if (!id || id.length > 128) {
     return c.json({ error: "Bad Request", message: "Invalid vulnerability ID" }, 400);
   }
@@ -211,7 +211,7 @@ security.get("/vulnerabilities/:id", rateLimitDefault, async (c) => {
 // ─── POST /api/v1/security/vulnerabilities/:id/acknowledge ───────────────────
 
 security.post("/vulnerabilities/:id/acknowledge", rateLimitDefault, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   const auth = c.get("auth");
 
   try {
@@ -229,7 +229,7 @@ security.post("/vulnerabilities/:id/acknowledge", rateLimitDefault, async (c) =>
 // ─── POST /api/v1/security/vulnerabilities/:id/fix ───────────────────────────
 
 security.post("/vulnerabilities/:id/fix", rateLimitDefault, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
 
   try {
     const vuln = await markVulnerabilityFixed(id);
@@ -243,7 +243,7 @@ security.post("/vulnerabilities/:id/fix", rateLimitDefault, async (c) => {
 // ─── POST /api/v1/security/vulnerabilities/:id/false-positive ────────────────
 
 security.post("/vulnerabilities/:id/false-positive", rateLimitDefault, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
 
   try {
     const vuln = await markFalsePositive(id);
@@ -298,7 +298,7 @@ security.get("/bom", rateLimitDefault, async (c) => {
 // Triggers a BOM scan and CVE detection for an instance.
 
 security.post("/scan/:instanceId", rateLimitStrict, async (c) => {
-  const instanceId = c.req.param("instanceId");
+  const instanceId = c.req.param("instanceId")!;
   if (!instanceId || instanceId.length > 128) {
     return c.json({ error: "Bad Request", message: "Invalid instance ID" }, 400);
   }
@@ -418,7 +418,7 @@ security.post("/secrets", rateLimitDefault, async (c) => {
 // ─── POST /api/v1/security/secrets/:id/rotate ────────────────────────────────
 
 security.post("/secrets/:id/rotate", rateLimitDefault, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
 
   try {
     const record = await markSecretRotated(id);
@@ -515,7 +515,7 @@ security.post("/ssh-keys", rateLimitDefault, async (c) => {
 // ─── POST /api/v1/security/ssh-keys/:id/revoke ───────────────────────────────
 
 security.post("/ssh-keys/:id/revoke", rateLimitDefault, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
 
   try {
     const key = await revokeSshKey(id);

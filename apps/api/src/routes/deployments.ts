@@ -126,7 +126,7 @@ deploymentsRoute.post("/", rateLimitStrict, async (c) => {
 // ─── GET /api/v1/deployments/:id ─────────────────────────────────────────────
 
 deploymentsRoute.get("/:id", rateLimitDefault, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   if (!id || id.length > 128) {
     return c.json({ error: "Bad Request", message: "Invalid deployment ID" }, 400);
   }

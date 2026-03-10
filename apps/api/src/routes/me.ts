@@ -118,7 +118,7 @@ me.post("/api-keys", async (c) => {
 
 me.delete("/api-keys/:id", async (c) => {
   const auth = c.get("auth");
-  const keyId = c.req.param("id");
+  const keyId = c.req.param("id")!;
 
   const existing = await db.apiKey.findFirst({
     where: { id: keyId, user_id: auth.userId },

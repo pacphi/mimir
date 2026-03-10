@@ -238,7 +238,7 @@ extensions.post("/policies", rateLimitStrict, requireRole("OPERATOR"), async (c)
 // ─── DELETE /api/v1/extensions/policies/:id ─────────────────────────────────
 
 extensions.delete("/policies/:id", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   try {
     await deletePolicy(id);
     return c.json({ deleted: true });
@@ -251,7 +251,7 @@ extensions.delete("/policies/:id", rateLimitStrict, requireRole("OPERATOR"), asy
 // ─── GET /api/v1/extensions/policies/effective/:instanceId ──────────────────
 
 extensions.get("/policies/effective/:instanceId", rateLimitDefault, async (c) => {
-  const instanceId = c.req.param("instanceId");
+  const instanceId = c.req.param("instanceId")!;
   try {
     const policies = await getEffectivePolicies(instanceId);
     return c.json({ instance_id: instanceId, policies });
@@ -267,7 +267,7 @@ extensions.get("/policies/effective/:instanceId", rateLimitDefault, async (c) =>
 // ─── GET /api/v1/extensions/:id ─────────────────────────────────────────────
 
 extensions.get("/:id", rateLimitDefault, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   try {
     const ext = await getExtensionById(id);
     if (!ext) {
@@ -283,7 +283,7 @@ extensions.get("/:id", rateLimitDefault, async (c) => {
 // ─── GET /api/v1/extensions/:id/analytics ───────────────────────────────────
 
 extensions.get("/:id/analytics", rateLimitDefault, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   try {
     const analytics = await getExtensionAnalytics(id);
     return c.json(analytics);
@@ -296,7 +296,7 @@ extensions.get("/:id/analytics", rateLimitDefault, async (c) => {
 // ─── GET /api/v1/extensions/:id/dependencies ────────────────────────────────
 
 extensions.get("/:id/dependencies", rateLimitDefault, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   try {
     const ext = await getExtensionById(id);
     if (!ext) {
@@ -344,7 +344,7 @@ extensions.post("/", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
 // ─── PUT /api/v1/extensions/:id ─────────────────────────────────────────────
 
 extensions.put("/:id", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   const body = await c.req.json().catch(() => null);
   const parsed = UpdateExtensionSchema.safeParse(body);
   if (!parsed.success) {
@@ -363,7 +363,7 @@ extensions.put("/:id", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
 // ─── DELETE /api/v1/extensions/:id ──────────────────────────────────────────
 
 extensions.delete("/:id", rateLimitStrict, requireRole("ADMIN"), async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   try {
     await deleteExtension(id);
     return c.json({ deleted: true });

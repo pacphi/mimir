@@ -78,7 +78,7 @@ lifecycle.use("*", authMiddleware);
 // ─── GET /api/v1/instances/:id/config ────────────────────────────────────────
 
 lifecycle.get("/:id/config", rateLimitDefault, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   if (!id || id.length > 128) {
     return c.json({ error: "Bad Request", message: "Invalid instance ID" }, 400);
   }
@@ -117,7 +117,7 @@ lifecycle.get("/:id/config", rateLimitDefault, async (c) => {
 // ─── POST /api/v1/instances/:id/clone ────────────────────────────────────────
 
 lifecycle.post("/:id/clone", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   if (!id || id.length > 128) {
     return c.json({ error: "Bad Request", message: "Invalid instance ID" }, 400);
   }
@@ -227,7 +227,7 @@ lifecycle.post("/:id/clone", rateLimitStrict, requireRole("OPERATOR"), async (c)
 // ─── POST /api/v1/instances/:id/redeploy ─────────────────────────────────────
 
 lifecycle.post("/:id/redeploy", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   if (!id || id.length > 128) {
     return c.json({ error: "Bad Request", message: "Invalid instance ID" }, 400);
   }
@@ -351,7 +351,7 @@ lifecycle.post("/:id/redeploy", rateLimitStrict, requireRole("OPERATOR"), async 
 // ─── POST /api/v1/instances/:id/suspend ──────────────────────────────────────
 
 lifecycle.post("/:id/suspend", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   if (!id || id.length > 128) {
     return c.json({ error: "Bad Request", message: "Invalid instance ID" }, 400);
   }
@@ -379,7 +379,7 @@ lifecycle.post("/:id/suspend", rateLimitStrict, requireRole("OPERATOR"), async (
 // ─── POST /api/v1/instances/:id/resume ───────────────────────────────────────
 
 lifecycle.post("/:id/resume", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   if (!id || id.length > 128) {
     return c.json({ error: "Bad Request", message: "Invalid instance ID" }, 400);
   }
@@ -407,7 +407,7 @@ lifecycle.post("/:id/resume", rateLimitStrict, requireRole("OPERATOR"), async (c
 // ─── POST /api/v1/instances/:id/destroy ──────────────────────────────────────
 
 lifecycle.post("/:id/destroy", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   if (!id || id.length > 128) {
     return c.json({ error: "Bad Request", message: "Invalid instance ID" }, 400);
   }
@@ -456,7 +456,7 @@ lifecycle.post("/:id/destroy", rateLimitStrict, requireRole("OPERATOR"), async (
 // ─── POST /api/v1/instances/:id/backup ───────────────────────────────────────
 
 lifecycle.post("/:id/backup", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   if (!id || id.length > 128) {
     return c.json({ error: "Bad Request", message: "Invalid instance ID" }, 400);
   }
@@ -593,7 +593,7 @@ lifecycle.post("/bulk-action", rateLimitStrict, requireRole("OPERATOR"), async (
 // ─── GET /api/v1/instances/:id/lifecycle ─────────────────────────────────────
 
 lifecycle.get("/:id/lifecycle", rateLimitDefault, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   if (!id || id.length > 128) {
     return c.json({ error: "Bad Request", message: "Invalid instance ID" }, 400);
   }

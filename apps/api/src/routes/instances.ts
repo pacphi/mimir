@@ -187,7 +187,7 @@ instances.get("/", rateLimitDefault, async (c) => {
 // ─── GET /api/v1/instances/:id ───────────────────────────────────────────────
 
 instances.get("/:id", rateLimitDefault, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   if (!id || id.length > 128) {
     return c.json({ error: "Bad Request", message: "Invalid instance ID" }, 400);
   }
@@ -207,7 +207,7 @@ instances.get("/:id", rateLimitDefault, async (c) => {
 // ─── DELETE /api/v1/instances/:id ────────────────────────────────────────────
 
 instances.delete("/:id", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   if (!id || id.length > 128) {
     return c.json({ error: "Bad Request", message: "Invalid instance ID" }, 400);
   }

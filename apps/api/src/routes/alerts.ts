@@ -247,14 +247,14 @@ alertsRouter.post("/bulk-resolve", rateLimitStrict, requireRole("OPERATOR"), asy
 });
 
 alertsRouter.get("/:id", rateLimitDefault, async (c) => {
-  const alert = await getAlertById(c.req.param("id"));
+  const alert = await getAlertById(c.req.param("id")!);
   if (!alert) return c.json({ error: "Not Found", message: "Alert not found" }, 404);
   return c.json(alert);
 });
 
 alertsRouter.post("/:id/acknowledge", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
   const auth = c.get("auth");
-  const alert = await acknowledgeAlert(c.req.param("id"), auth.userId);
+  const alert = await acknowledgeAlert(c.req.param("id")!, auth.userId);
   if (!alert)
     return c.json({ error: "Not Found", message: "Alert not found or already resolved" }, 404);
   return c.json(alert);
@@ -262,7 +262,7 @@ alertsRouter.post("/:id/acknowledge", rateLimitStrict, requireRole("OPERATOR"), 
 
 alertsRouter.post("/:id/resolve", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
   const auth = c.get("auth");
-  const alert = await resolveAlert(c.req.param("id"), auth.userId);
+  const alert = await resolveAlert(c.req.param("id")!, auth.userId);
   if (!alert) return c.json({ error: "Not Found", message: "Alert not found" }, 404);
   return c.json(alert);
 });
@@ -310,7 +310,7 @@ alertsRouter.post("/rules", rateLimitStrict, requireRole("OPERATOR"), async (c) 
 });
 
 alertsRouter.get("/rules/:id", rateLimitDefault, async (c) => {
-  const rule = await getAlertRuleById(c.req.param("id"));
+  const rule = await getAlertRuleById(c.req.param("id")!);
   if (!rule) return c.json({ error: "Not Found", message: "Alert rule not found" }, 404);
   return c.json(rule);
 });
@@ -326,20 +326,20 @@ alertsRouter.put("/rules/:id", rateLimitStrict, requireRole("OPERATOR"), async (
   if (!parsed.success)
     return c.json({ error: "Bad Request", details: parsed.error.flatten() }, 400);
 
-  const rule = await updateAlertRule(c.req.param("id"), parsed.data);
+  const rule = await updateAlertRule(c.req.param("id")!, parsed.data);
   if (!rule) return c.json({ error: "Not Found", message: "Alert rule not found" }, 404);
   return c.json(rule);
 });
 
 alertsRouter.delete("/rules/:id", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
-  const rule = await deleteAlertRule(c.req.param("id"));
+  const rule = await deleteAlertRule(c.req.param("id")!);
   if (!rule) return c.json({ error: "Not Found", message: "Alert rule not found" }, 404);
   return c.json({ message: "Rule deleted", id: rule.id, name: rule.name });
 });
 
 alertsRouter.post("/rules/:id/enable", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
   try {
-    const rule = await toggleAlertRule(c.req.param("id"), true);
+    const rule = await toggleAlertRule(c.req.param("id")!, true);
     return c.json({ id: rule.id, enabled: rule.enabled });
   } catch {
     return c.json({ error: "Not Found", message: "Alert rule not found" }, 404);
@@ -348,7 +348,7 @@ alertsRouter.post("/rules/:id/enable", rateLimitStrict, requireRole("OPERATOR"),
 
 alertsRouter.post("/rules/:id/disable", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
   try {
-    const rule = await toggleAlertRule(c.req.param("id"), false);
+    const rule = await toggleAlertRule(c.req.param("id")!, false);
     return c.json({ id: rule.id, enabled: rule.enabled });
   } catch {
     return c.json({ error: "Not Found", message: "Alert rule not found" }, 404);
@@ -384,7 +384,7 @@ alertsRouter.post("/channels", rateLimitStrict, requireRole("OPERATOR"), async (
 });
 
 alertsRouter.get("/channels/:id", rateLimitDefault, async (c) => {
-  const channel = await getChannelById(c.req.param("id"));
+  const channel = await getChannelById(c.req.param("id")!);
   if (!channel) return c.json({ error: "Not Found", message: "Channel not found" }, 404);
   return c.json(channel);
 });
@@ -400,19 +400,19 @@ alertsRouter.put("/channels/:id", rateLimitStrict, requireRole("OPERATOR"), asyn
   if (!parsed.success)
     return c.json({ error: "Bad Request", details: parsed.error.flatten() }, 400);
 
-  const channel = await updateChannel(c.req.param("id"), parsed.data);
+  const channel = await updateChannel(c.req.param("id")!, parsed.data);
   if (!channel) return c.json({ error: "Not Found", message: "Channel not found" }, 404);
   return c.json(channel);
 });
 
 alertsRouter.delete("/channels/:id", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
-  const channel = await deleteChannel(c.req.param("id"));
+  const channel = await deleteChannel(c.req.param("id")!);
   if (!channel) return c.json({ error: "Not Found", message: "Channel not found" }, 404);
   return c.json({ message: "Channel deleted", id: channel.id, name: channel.name });
 });
 
 alertsRouter.post("/channels/:id/test", rateLimitStrict, requireRole("OPERATOR"), async (c) => {
-  const result = await testChannel(c.req.param("id"));
+  const result = await testChannel(c.req.param("id")!);
   if (!result.success && result.error === "Channel not found") {
     return c.json({ error: "Not Found", message: "Channel not found" }, 404);
   }

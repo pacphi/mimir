@@ -180,7 +180,7 @@ providers.get("/", rateLimitDefault, (c) => {
 // ─── GET /api/v1/providers/:provider/regions ─────────────────────────────────
 
 providers.get("/:provider/regions", rateLimitDefault, (c) => {
-  const providerId = c.req.param("provider");
+  const providerId = c.req.param("provider")!;
 
   if (!VALID_PROVIDER_IDS.includes(providerId as (typeof VALID_PROVIDER_IDS)[number])) {
     return c.json({ error: "Not Found", message: `Provider '${providerId}' not found` }, 404);
@@ -193,7 +193,7 @@ providers.get("/:provider/regions", rateLimitDefault, (c) => {
 // ─── GET /api/v1/providers/:provider/compute-catalog ─────────────────────────
 
 providers.get("/:provider/compute-catalog", rateLimitDefault, async (c) => {
-  const providerId = c.req.param("provider");
+  const providerId = c.req.param("provider")!;
 
   if (!VALID_PROVIDER_IDS.includes(providerId as (typeof VALID_PROVIDER_IDS)[number])) {
     return c.json({ error: "Not Found", message: `Provider '${providerId}' not found` }, 404);
@@ -241,7 +241,7 @@ providers.get("/:provider/compute-catalog", rateLimitDefault, async (c) => {
 // ─── GET /api/v1/providers/:provider/compute-catalog/estimate ────────────────
 
 providers.get("/:provider/compute-catalog/estimate", rateLimitDefault, async (c) => {
-  const providerId = c.req.param("provider");
+  const providerId = c.req.param("provider")!;
 
   if (!VALID_PROVIDER_IDS.includes(providerId as (typeof VALID_PROVIDER_IDS)[number])) {
     return c.json({ error: "Not Found", message: `Provider '${providerId}' not found` }, 404);
@@ -284,7 +284,7 @@ providers.get("/:provider/compute-catalog/estimate", rateLimitDefault, async (c)
 // ─── POST /api/v1/providers/:provider/compute-catalog/refresh ────────────────
 
 providers.post("/:provider/compute-catalog/refresh", rateLimitStrict, async (c) => {
-  const providerId = c.req.param("provider");
+  const providerId = c.req.param("provider")!;
 
   if (!VALID_PROVIDER_IDS.includes(providerId as (typeof VALID_PROVIDER_IDS)[number])) {
     return c.json({ error: "Not Found", message: `Provider '${providerId}' not found` }, 404);

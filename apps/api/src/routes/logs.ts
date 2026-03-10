@@ -318,7 +318,7 @@ logs.post("/ingest/batch", rateLimitStrict, async (c) => {
 // ─── GET /api/v1/logs/:id ────────────────────────────────────────────────────
 
 logs.get("/:id", rateLimitDefault, async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
 
   try {
     const log = await getLogById(id);
@@ -342,7 +342,7 @@ instanceLogs.use("*", authMiddleware);
 // ─── GET /api/v1/instances/:instanceId/logs ──────────────────────────────────
 
 instanceLogs.get("/:instanceId/logs", rateLimitDefault, async (c) => {
-  const instanceId = c.req.param("instanceId");
+  const instanceId = c.req.param("instanceId")!;
   const q = QueryLogsSchema.safeParse(Object.fromEntries(new URL(c.req.url).searchParams));
   if (!q.success) {
     return c.json(
@@ -386,7 +386,7 @@ instanceLogs.get("/:instanceId/logs", rateLimitDefault, async (c) => {
 // ─── GET /api/v1/instances/:instanceId/logs/stats ────────────────────────────
 
 instanceLogs.get("/:instanceId/logs/stats", rateLimitDefault, async (c) => {
-  const instanceId = c.req.param("instanceId");
+  const instanceId = c.req.param("instanceId")!;
   const q = StatsQuerySchema.safeParse(Object.fromEntries(new URL(c.req.url).searchParams));
   if (!q.success) {
     return c.json(
@@ -416,7 +416,7 @@ instanceLogs.get("/:instanceId/logs/stats", rateLimitDefault, async (c) => {
 // SSE stream: real-time log tail for a specific instance (like `tail -f`).
 
 instanceLogs.get("/:instanceId/logs/stream", rateLimitDefault, async (c) => {
-  const instanceId = c.req.param("instanceId");
+  const instanceId = c.req.param("instanceId")!;
 
   c.header("Content-Type", "text/event-stream");
   c.header("Cache-Control", "no-cache");

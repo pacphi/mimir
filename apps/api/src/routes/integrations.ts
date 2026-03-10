@@ -34,7 +34,7 @@ integrationsRouter.get("/providers", rateLimitDefault, (c) => {
 });
 
 integrationsRouter.get("/providers/:providerId", rateLimitDefault, (c) => {
-  const spec = getProviderCredentialSpec(c.req.param("providerId"));
+  const spec = getProviderCredentialSpec(c.req.param("providerId")!);
   if (!spec) {
     return c.json({ error: "Not Found", message: "Provider not found" }, 404);
   }
@@ -43,7 +43,7 @@ integrationsRouter.get("/providers/:providerId", rateLimitDefault, (c) => {
 
 // Single platform integration status
 integrationsRouter.get("/:id", rateLimitDefault, async (c) => {
-  const status = await getPlatformIntegrationStatus(c.req.param("id"));
+  const status = await getPlatformIntegrationStatus(c.req.param("id")!);
   if (!status) {
     return c.json({ error: "Not Found", message: "Integration not found" }, 404);
   }

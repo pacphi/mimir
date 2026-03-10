@@ -17,6 +17,7 @@ import {
   getInstanceById,
   deregisterInstance,
 } from "../services/instances.js";
+import { db } from "../lib/db.js";
 import { logger } from "../lib/logger.js";
 import { getVisibleInstanceFilter } from "../lib/team-scope.js";
 
@@ -24,26 +25,28 @@ import { getVisibleInstanceFilter } from "../lib/team-scope.js";
 // Zod schemas
 // ─────────────────────────────────────────────────────────────────────────────
 
+const providerEnum = z.enum([
+  "fly",
+  "docker",
+  "devpod",
+  "e2b",
+  "kubernetes",
+  "digitalocean",
+  "gcp",
+  "azure",
+  "aws",
+  "runpod",
+  "northflank",
+  "ssh",
+]);
+
 const RegisterInstanceSchema = z.object({
   name: z
     .string()
     .min(1)
     .max(128)
     .regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, "Name must be lowercase alphanumeric and hyphens"),
-  provider: z.enum([
-    "fly",
-    "docker",
-    "devpod",
-    "e2b",
-    "kubernetes",
-    "digitalocean",
-    "gcp",
-    "azure",
-    "aws",
-    "runpod",
-    "northflank",
-    "ssh",
-  ]),
+  provider: providerEnum,
   region: z.string().max(64).optional(),
   extensions: z.array(z.string().min(1).max(128)).max(200).default([]),
   configHash: z
@@ -62,23 +65,24 @@ const RegisterInstanceSchema = z.object({
     .optional(),
 });
 
+/**
+ * Agent registration schema — sent by Draupnir on boot.
+ * Maps instance_id/hostname → name for compatibility with the instance registry.
+ */
+const AgentRegistrationSchema = z.object({
+  instance_id: z.string().min(1).max(128),
+  hostname: z.string().max(256).optional(),
+  provider: providerEnum,
+  region: z.string().max(64).optional(),
+  agent_version: z.string().max(64).optional(),
+  os: z.string().max(32).optional(),
+  arch: z.string().max(32).optional(),
+  tags: z.record(z.string(), z.string()).optional(),
+  timestamp: z.string().optional(),
+});
+
 const ListInstancesQuerySchema = z.object({
-  provider: z
-    .enum([
-      "fly",
-      "docker",
-      "devpod",
-      "e2b",
-      "kubernetes",
-      "digitalocean",
-      "gcp",
-      "azure",
-      "aws",
-      "runpod",
-      "northflank",
-      "ssh",
-    ])
-    .optional(),
+  provider: providerEnum.optional(),
   status: z
     .enum([
       "RUNNING",
@@ -115,8 +119,11 @@ instances.post("/", rateLimitStrict, async (c) => {
     return c.json({ error: "Bad Request", message: "Request body must be valid JSON" }, 400);
   }
 
+  // Try the standard schema first, then the Draupnir agent schema
   const parseResult = RegisterInstanceSchema.safeParse(body);
-  if (!parseResult.success) {
+  const agentResult = !parseResult.success ? AgentRegistrationSchema.safeParse(body) : null;
+
+  if (!parseResult.success && (!agentResult || !agentResult.success)) {
     return c.json(
       {
         error: "Validation Error",
@@ -134,10 +141,37 @@ instances.post("/", rateLimitStrict, async (c) => {
       c.req.header("x-real-ip") ??
       undefined;
 
-    const instance = await registerInstance({
-      ...parseResult.data,
-      remoteIp,
-    });
+    let input: Parameters<typeof registerInstance>[0];
+
+    if (parseResult.success) {
+      input = { ...parseResult.data, remoteIp };
+    } else {
+      // Map Draupnir agent fields → RegisterInstanceInput.
+      // The agent sends instance_id which is the Mimir-assigned CUID;
+      // look up the instance name from the database, falling back to hostname.
+      const agent = agentResult!.data!;
+      let instanceName = agent.hostname ?? agent.instance_id;
+
+      // If the instance_id looks like a CUID (Mimir-assigned), resolve the name
+      const existing = await db.instance.findUnique({
+        where: { id: agent.instance_id },
+        select: { name: true },
+      });
+      if (existing) {
+        instanceName = existing.name;
+      }
+
+      input = {
+        name: instanceName,
+        provider: agent.provider,
+        region: agent.region,
+        extensions: [],
+        tags: agent.tags,
+        remoteIp,
+      };
+    }
+
+    const instance = await registerInstance(input);
     return c.json(serializeInstance(instance), 201);
   } catch (err) {
     logger.error({ err }, "Failed to register instance");

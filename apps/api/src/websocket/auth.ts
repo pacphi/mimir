@@ -34,6 +34,13 @@ export function hashApiKey(rawKey: string): string {
 }
 
 export function extractRawKey(req: IncomingMessage): string | null {
+  // Authorization: Bearer <key> — used by Draupnir agents
+  const authHeader = req.headers["authorization"];
+  if (typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
+    const bearer = authHeader.slice(7).trim();
+    if (bearer.length > 0) return bearer;
+  }
+
   const headerKey = req.headers["x-api-key"];
   if (typeof headerKey === "string" && headerKey.length > 0) {
     return headerKey;

@@ -35,6 +35,9 @@ npm-debug.log*
 # Prisma
 apps/api/src/generated/
 
+# Docker Compose (local dev overrides)
+apps/api/docker-compose.yml
+
 # Secrets
 *.pem
 *.key

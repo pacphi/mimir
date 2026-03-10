@@ -286,6 +286,8 @@ function resolveSystemSecrets(yaml: string): string {
     "    source: env",
     "  - name: SINDRI_CONSOLE_API_KEY",
     "    source: env",
+    "  - name: SINDRI_INSTANCE_ID",
+    "    source: env",
   ].join("\n");
 
   if (/^secrets:/m.test(resolved)) {
@@ -450,6 +452,31 @@ async function runProvisioningFlow(
     resolvedSecrets.SINDRI_CONSOLE_URL = consoleUrl;
     if (consoleApiKey) resolvedSecrets.SINDRI_CONSOLE_API_KEY = consoleApiKey;
 
+    // ── Pre-create instance record ───────────────────────────────────────────
+    // Create/update the instance before running the CLI so that:
+    //   1. We have a stable instance ID to pass as SINDRI_INSTANCE_ID
+    //   2. The Draupnir agent can authenticate via X-Instance-ID on WebSocket
+    const parsedExtensions = ensureDraupnir(parseExtensionsFromYaml(resolvedYaml));
+    const instance = await db.instance.upsert({
+      where: { name: input.name },
+      create: {
+        name: input.name,
+        provider: input.provider,
+        region: input.region,
+        extensions: parsedExtensions,
+        status: "DEPLOYING",
+      },
+      update: {
+        provider: input.provider,
+        region: input.region,
+        extensions: parsedExtensions,
+        status: "DEPLOYING",
+      },
+    });
+
+    // Pass the Mimir-assigned instance ID so Draupnir can identify itself
+    resolvedSecrets.SINDRI_INSTANCE_ID = instance.id;
+
     // ── Run sindri deploy ─────────────────────────────────────────────────────
     // Secrets are passed as subprocess env vars — the Sindri CLI reads them
     // directly from the environment (source: env). No temp file on disk.
@@ -465,23 +492,10 @@ async function runProvisioningFlow(
     await emitProgress(deploymentId, "Registering instance...", { progress_percent: 85 });
     appendLog("Registering instance in database...");
 
-    // ── Register / update instance record ────────────────────────────────────
-    const parsedExtensions = ensureDraupnir(parseExtensionsFromYaml(resolvedYaml));
-    const instance = await db.instance.upsert({
-      where: { name: input.name },
-      create: {
-        name: input.name,
-        provider: input.provider,
-        region: input.region,
-        extensions: parsedExtensions,
-        status: "RUNNING",
-      },
-      update: {
-        provider: input.provider,
-        region: input.region,
-        extensions: parsedExtensions,
-        status: "RUNNING",
-      },
+    // ── Update instance to RUNNING ───────────────────────────────────────────
+    await db.instance.update({
+      where: { id: instance.id },
+      data: { status: "RUNNING", updated_at: new Date() },
     });
 
     // ── Store secrets in vault (encrypted, instance-scoped) ────────────────
@@ -532,6 +546,18 @@ async function runProvisioningFlow(
         logger.warn({ dbErr, deploymentId }, "Failed to persist failure state"),
       );
     await emitProgress(deploymentId, userMessage, { type: "error", status: "FAILED" });
+    // Mark pre-created instance as ERROR if the CLI deploy failed
+    await db.instance
+      .updateMany({
+        where: { name: input.name, status: "DEPLOYING" },
+        data: { status: "ERROR", updated_at: new Date() },
+      })
+      .catch((dbErr: unknown) =>
+        logger.warn(
+          { dbErr, deploymentId },
+          "Failed to mark instance as ERROR after deploy failure",
+        ),
+      );
     logger.error({ err, deploymentId }, "Deployment failed");
   } finally {
     // ── Secure cleanup ────────────────────────────────────────────────────────

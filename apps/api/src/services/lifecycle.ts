@@ -13,11 +13,7 @@ import { randomUUID } from "crypto";
 import { writeFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { isCliConfigured, runCliCapture } from "../lib/cli.js";
-
-const execFileAsync = promisify(execFile);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Input types
@@ -418,189 +414,107 @@ export async function bulkInstanceAction(input: BulkActionInput): Promise<BulkAc
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Destroy the instance's infrastructure using the Sindri CLI when available.
- * Falls back to direct Docker commands for the `docker` provider when the
- * Sindri CLI is not installed.
+ * Destroy the instance's infrastructure via `sindri destroy`.
  *
- * Returns `true` if infrastructure was actually torn down, `false` otherwise.
- *
- * The Sindri CLI handles provider-specific teardown:
- *   - Docker: docker-compose down + volume cleanup
- *   - Fly.io: fly apps destroy
- *   - E2B:    sandbox delete
- *   - K8s:    kubectl delete deployment
- *   - RunPod: pod termination via API
- *   - Northflank: service deletion via API
- *   - DevPod: devpod delete
+ * Returns `true` if infrastructure was torn down, `false` if it failed.
+ * Throws if the Sindri CLI is not configured at all.
  */
 async function destroyInstanceInfra(instanceName: string, provider: string): Promise<boolean> {
-  // ── Try Sindri CLI first ───────────────────────────────────────────────────
-  if (isCliConfigured()) {
-    let tmpFile: string | null = null;
-    try {
-      const minimalYaml = [
-        'version: "3.0"',
-        `name: ${instanceName}`,
-        "deployment:",
-        `  provider: ${provider}`,
-      ].join("\n");
-
-      tmpFile = join(tmpdir(), `sindri-destroy-${instanceName}-${Date.now()}.yaml`);
-      await writeFile(tmpFile, minimalYaml, "utf-8");
-
-      await runCliCapture(["destroy", "--force", "--config", tmpFile]);
-      logger.info({ instanceName, provider }, "Instance destroyed via Sindri CLI");
-      return true;
-    } catch (err) {
-      logger.warn({ err, instanceName, provider }, "Sindri CLI destroy failed");
-      // Fall through to provider-specific fallback
-    } finally {
-      if (tmpFile) await unlink(tmpFile).catch(() => undefined);
-    }
+  if (!isCliConfigured()) {
+    logger.error(
+      { instanceName, provider },
+      "Sindri CLI not configured — set SINDRI_BIN_PATH or install @sindri/cli",
+    );
+    return false;
   }
 
-  // ── Fallback: direct Docker teardown ────────────────────────────────────────
-  if (provider === "docker") {
-    return destroyDockerInfra(instanceName);
-  }
-
-  logger.warn(
-    { instanceName, provider },
-    "Sindri CLI not configured and no fallback available — infrastructure NOT torn down",
-  );
-  return false;
-}
-
-/**
- * Direct Docker teardown — stop & remove the container, then remove its
- * associated named volume.  Used as a fallback when the Sindri CLI is not
- * installed (common in local development).
- *
- * Container naming convention: the container name matches the instance name.
- * Volume naming convention: `<instanceName>_home` (docker-compose default).
- */
-async function destroyDockerInfra(instanceName: string): Promise<boolean> {
-  const timeout = 30_000;
-  let tornDown = false;
-
-  // 1. Stop + remove container
+  let tmpFile: string | null = null;
   try {
-    await execFileAsync("docker", ["rm", "-f", instanceName], { timeout });
-    logger.info({ instanceName }, "Docker container removed");
-    tornDown = true;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    // "No such container" is fine — already removed
-    if (!msg.includes("No such container")) {
-      logger.warn({ err, instanceName }, "Failed to remove Docker container");
-    } else {
-      tornDown = true; // already gone
-    }
-  }
+    const minimalYaml = [
+      'version: "3.0"',
+      `name: ${instanceName}`,
+      "deployment:",
+      `  provider: ${provider}`,
+    ].join("\n");
 
-  // 2. Remove the associated volume (docker-compose naming: <name>_home)
-  const volumeName = `${instanceName}_home`;
-  try {
-    await execFileAsync("docker", ["volume", "rm", "-f", volumeName], { timeout });
-    logger.info({ instanceName, volumeName }, "Docker volume removed");
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (!msg.includes("No such volume")) {
-      logger.warn({ err, instanceName, volumeName }, "Failed to remove Docker volume");
-    }
-  }
+    tmpFile = join(tmpdir(), `sindri-destroy-${instanceName}-${Date.now()}.yaml`);
+    await writeFile(tmpFile, minimalYaml, "utf-8");
 
-  return tornDown;
+    const { stdout, stderr } = await runCliCapture(["destroy", "--force", "--config", tmpFile]);
+    logger.info({ instanceName, provider, stdout, stderr }, "Instance destroyed via Sindri CLI");
+    return true;
+  } catch (err) {
+    logger.error({ err, instanceName, provider }, "Sindri CLI destroy failed");
+    return false;
+  } finally {
+    if (tmpFile) await unlink(tmpFile).catch(() => undefined);
+  }
 }
 
 /**
  * Suspend (stop) the instance's infrastructure via `sindri stop`.
- * Falls back to `docker stop` for the docker provider.
+ * Throws if the CLI is not configured or the command fails.
  */
 async function suspendInstanceInfra(instanceName: string, provider: string): Promise<void> {
-  if (isCliConfigured()) {
-    let tmpFile: string | null = null;
-    try {
-      const minimalYaml = [
-        'version: "3.0"',
-        `name: ${instanceName}`,
-        "deployment:",
-        `  provider: ${provider}`,
-      ].join("\n");
-
-      tmpFile = join(tmpdir(), `sindri-stop-${instanceName}-${Date.now()}.yaml`);
-      await writeFile(tmpFile, minimalYaml, "utf-8");
-
-      await runCliCapture(["stop", "--config", tmpFile]);
-      logger.info({ instanceName, provider }, "Instance stopped via Sindri CLI");
-      return;
-    } catch (err) {
-      logger.warn({ err, instanceName, provider }, "Sindri CLI stop failed");
-    } finally {
-      if (tmpFile) await unlink(tmpFile).catch(() => undefined);
-    }
+  if (!isCliConfigured()) {
+    throw new Error(
+      `Sindri CLI not configured — cannot stop '${instanceName}'. Set SINDRI_BIN_PATH or install @sindri/cli.`,
+    );
   }
 
-  // Fallback: direct Docker stop
-  if (provider === "docker") {
-    try {
-      await execFileAsync("docker", ["stop", instanceName], { timeout: 30_000 });
-      logger.info({ instanceName }, "Docker container stopped");
-    } catch (err) {
-      logger.warn({ err, instanceName }, "Failed to stop Docker container");
-    }
-    return;
-  }
+  let tmpFile: string | null = null;
+  try {
+    const minimalYaml = [
+      'version: "3.0"',
+      `name: ${instanceName}`,
+      "deployment:",
+      `  provider: ${provider}`,
+    ].join("\n");
 
-  logger.warn(
-    { instanceName, provider },
-    "Sindri CLI not configured and no fallback — cannot stop",
-  );
+    tmpFile = join(tmpdir(), `sindri-stop-${instanceName}-${Date.now()}.yaml`);
+    await writeFile(tmpFile, minimalYaml, "utf-8");
+
+    await runCliCapture(["stop", "--config", tmpFile]);
+    logger.info({ instanceName, provider }, "Instance stopped via Sindri CLI");
+  } catch (err) {
+    logger.error({ err, instanceName, provider }, "Sindri CLI stop failed");
+    throw new Error(`Failed to stop '${instanceName}' via Sindri CLI`, { cause: err });
+  } finally {
+    if (tmpFile) await unlink(tmpFile).catch(() => undefined);
+  }
 }
 
 /**
  * Resume (start) the instance's infrastructure via `sindri start`.
- * Falls back to `docker start` for the docker provider.
+ * Throws if the CLI is not configured or the command fails.
  */
 async function resumeInstanceInfra(instanceName: string, provider: string): Promise<void> {
-  if (isCliConfigured()) {
-    let tmpFile: string | null = null;
-    try {
-      const minimalYaml = [
-        'version: "3.0"',
-        `name: ${instanceName}`,
-        "deployment:",
-        `  provider: ${provider}`,
-      ].join("\n");
-
-      tmpFile = join(tmpdir(), `sindri-start-${instanceName}-${Date.now()}.yaml`);
-      await writeFile(tmpFile, minimalYaml, "utf-8");
-
-      await runCliCapture(["start", "--config", tmpFile]);
-      logger.info({ instanceName, provider }, "Instance started via Sindri CLI");
-      return;
-    } catch (err) {
-      logger.warn({ err, instanceName, provider }, "Sindri CLI start failed");
-    } finally {
-      if (tmpFile) await unlink(tmpFile).catch(() => undefined);
-    }
+  if (!isCliConfigured()) {
+    throw new Error(
+      `Sindri CLI not configured — cannot start '${instanceName}'. Set SINDRI_BIN_PATH or install @sindri/cli.`,
+    );
   }
 
-  // Fallback: direct Docker start
-  if (provider === "docker") {
-    try {
-      await execFileAsync("docker", ["start", instanceName], { timeout: 30_000 });
-      logger.info({ instanceName }, "Docker container started");
-    } catch (err) {
-      logger.warn({ err, instanceName }, "Failed to start Docker container");
-    }
-    return;
-  }
+  let tmpFile: string | null = null;
+  try {
+    const minimalYaml = [
+      'version: "3.0"',
+      `name: ${instanceName}`,
+      "deployment:",
+      `  provider: ${provider}`,
+    ].join("\n");
 
-  logger.warn(
-    { instanceName, provider },
-    "Sindri CLI not configured and no fallback — cannot start",
-  );
+    tmpFile = join(tmpdir(), `sindri-start-${instanceName}-${Date.now()}.yaml`);
+    await writeFile(tmpFile, minimalYaml, "utf-8");
+
+    await runCliCapture(["start", "--config", tmpFile]);
+    logger.info({ instanceName, provider }, "Instance started via Sindri CLI");
+  } catch (err) {
+    logger.error({ err, instanceName, provider }, "Sindri CLI start failed");
+    throw new Error(`Failed to start '${instanceName}' via Sindri CLI`, { cause: err });
+  } finally {
+    if (tmpFile) await unlink(tmpFile).catch(() => undefined);
+  }
 }
 
 function publishLifecycleEvent(

@@ -371,8 +371,9 @@ lifecycle.post("/:id/suspend", rateLimitStrict, requireRole("OPERATOR"), async (
     if (err instanceof Error && err.message.includes("cannot be suspended")) {
       return c.json({ error: "Conflict", message: err.message }, 409);
     }
+    const message = err instanceof Error ? err.message : "Failed to suspend instance";
     logger.error({ err, instanceId: id }, "Failed to suspend instance");
-    return c.json({ error: "Internal Server Error", message: "Failed to suspend instance" }, 500);
+    return c.json({ error: "Internal Server Error", message }, 500);
   }
 });
 
@@ -399,8 +400,9 @@ lifecycle.post("/:id/resume", rateLimitStrict, requireRole("OPERATOR"), async (c
     if (err instanceof Error && err.message.includes("cannot be resumed")) {
       return c.json({ error: "Conflict", message: err.message }, 409);
     }
+    const message = err instanceof Error ? err.message : "Failed to resume instance";
     logger.error({ err, instanceId: id }, "Failed to resume instance");
-    return c.json({ error: "Internal Server Error", message: "Failed to resume instance" }, 500);
+    return c.json({ error: "Internal Server Error", message }, 500);
   }
 });
 

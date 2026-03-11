@@ -448,6 +448,10 @@ lifecycle.post("/:id/destroy", rateLimitStrict, requireRole("OPERATOR"), async (
     if (err instanceof Error && err.message.includes("cannot be destroyed")) {
       return c.json({ error: "Conflict", message: err.message }, 409);
     }
+    if (err instanceof Error && err.message.includes("Failed to tear down infrastructure")) {
+      logger.error({ err, instanceId: id }, "Infrastructure teardown failed");
+      return c.json({ error: "Teardown Failed", message: err.message }, 502);
+    }
     logger.error({ err, instanceId: id }, "Failed to destroy instance");
     return c.json({ error: "Internal Server Error", message: "Failed to destroy instance" }, 500);
   }

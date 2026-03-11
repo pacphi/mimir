@@ -13,7 +13,11 @@ import { randomUUID } from "crypto";
 import { writeFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { isCliConfigured, runCliCapture } from "../lib/cli.js";
+
+const execFileAsync = promisify(execFile);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Input types
@@ -199,13 +203,49 @@ export async function destroyInstance(
   }
 
   let finalStatus: InstanceStatus;
+  let infraTornDown = false;
 
   if (input.skipInfraTeardown) {
     // Agent self-deregistration — infra may still exist
     finalStatus = "STOPPED";
   } else {
     // Full destroy — tear down infrastructure
-    await destroyInstanceInfra(existing.name, existing.provider);
+    infraTornDown = await destroyInstanceInfra(existing.name, existing.provider);
+
+    if (!infraTornDown) {
+      // Leave in DESTROYING state so the user can see it failed and retry
+      await db.event.create({
+        data: {
+          instance_id: id,
+          event_type: "DESTROY",
+          metadata: {
+            triggered_by: "api",
+            backup_id: backupId ?? null,
+            volume_backed_up: input.backupVolume,
+            infra_torn_down: false,
+            final_status: "DESTROYING",
+            error: "Infrastructure teardown failed — container may still be running",
+          },
+        },
+      });
+
+      // Revert to ERROR so the instance is actionable (retryable destroy, etc.)
+      await db.instance.update({
+        where: { id },
+        data: { status: "ERROR", updated_at: new Date() },
+      });
+
+      publishLifecycleEvent(id, "error", {
+        name: existing.name,
+        reason: "Infrastructure teardown failed",
+      });
+
+      throw new Error(
+        `Failed to tear down infrastructure for '${existing.name}' — ` +
+          `the container may still be running. Check the API logs for details.`,
+      );
+    }
+
     finalStatus = "DESTROYED";
   }
 
@@ -222,7 +262,7 @@ export async function destroyInstance(
         triggered_by: "api",
         backup_id: backupId ?? null,
         volume_backed_up: input.backupVolume,
-        infra_torn_down: !input.skipInfraTeardown,
+        infra_torn_down: infraTornDown,
         final_status: finalStatus,
       },
     },
@@ -379,6 +419,10 @@ export async function bulkInstanceAction(input: BulkActionInput): Promise<BulkAc
 
 /**
  * Destroy the instance's infrastructure using the Sindri CLI when available.
+ * Falls back to direct Docker commands for the `docker` provider when the
+ * Sindri CLI is not installed.
+ *
+ * Returns `true` if infrastructure was actually torn down, `false` otherwise.
  *
  * The Sindri CLI handles provider-specific teardown:
  *   - Docker: docker-compose down + volume cleanup
@@ -389,104 +433,174 @@ export async function bulkInstanceAction(input: BulkActionInput): Promise<BulkAc
  *   - Northflank: service deletion via API
  *   - DevPod: devpod delete
  */
-async function destroyInstanceInfra(instanceName: string, provider: string): Promise<void> {
-  if (!isCliConfigured()) {
-    logger.warn(
-      { instanceName, provider },
-      "Sindri CLI not configured — cannot destroy infrastructure",
-    );
-    return;
+async function destroyInstanceInfra(instanceName: string, provider: string): Promise<boolean> {
+  // ── Try Sindri CLI first ───────────────────────────────────────────────────
+  if (isCliConfigured()) {
+    let tmpFile: string | null = null;
+    try {
+      const minimalYaml = [
+        'version: "3.0"',
+        `name: ${instanceName}`,
+        "deployment:",
+        `  provider: ${provider}`,
+      ].join("\n");
+
+      tmpFile = join(tmpdir(), `sindri-destroy-${instanceName}-${Date.now()}.yaml`);
+      await writeFile(tmpFile, minimalYaml, "utf-8");
+
+      await runCliCapture(["destroy", "--force", "--config", tmpFile]);
+      logger.info({ instanceName, provider }, "Instance destroyed via Sindri CLI");
+      return true;
+    } catch (err) {
+      logger.warn({ err, instanceName, provider }, "Sindri CLI destroy failed");
+      // Fall through to provider-specific fallback
+    } finally {
+      if (tmpFile) await unlink(tmpFile).catch(() => undefined);
+    }
   }
 
-  let tmpFile: string | null = null;
+  // ── Fallback: direct Docker teardown ────────────────────────────────────────
+  if (provider === "docker") {
+    return destroyDockerInfra(instanceName);
+  }
+
+  logger.warn(
+    { instanceName, provider },
+    "Sindri CLI not configured and no fallback available — infrastructure NOT torn down",
+  );
+  return false;
+}
+
+/**
+ * Direct Docker teardown — stop & remove the container, then remove its
+ * associated named volume.  Used as a fallback when the Sindri CLI is not
+ * installed (common in local development).
+ *
+ * Container naming convention: the container name matches the instance name.
+ * Volume naming convention: `<instanceName>_home` (docker-compose default).
+ */
+async function destroyDockerInfra(instanceName: string): Promise<boolean> {
+  const timeout = 30_000;
+  let tornDown = false;
+
+  // 1. Stop + remove container
   try {
-    const minimalYaml = [
-      'version: "3.0"',
-      `name: ${instanceName}`,
-      "deployment:",
-      `  provider: ${provider}`,
-    ].join("\n");
-
-    tmpFile = join(tmpdir(), `sindri-destroy-${instanceName}-${Date.now()}.yaml`);
-    await writeFile(tmpFile, minimalYaml, "utf-8");
-
-    await runCliCapture(["destroy", "--force", "--config", tmpFile]);
-    logger.info({ instanceName, provider }, "Instance destroyed via Sindri CLI");
+    await execFileAsync("docker", ["rm", "-f", instanceName], { timeout });
+    logger.info({ instanceName }, "Docker container removed");
+    tornDown = true;
   } catch (err) {
-    logger.warn({ err, instanceName, provider }, "Sindri CLI destroy failed");
-  } finally {
-    if (tmpFile) await unlink(tmpFile).catch(() => undefined);
+    const msg = err instanceof Error ? err.message : String(err);
+    // "No such container" is fine — already removed
+    if (!msg.includes("No such container")) {
+      logger.warn({ err, instanceName }, "Failed to remove Docker container");
+    } else {
+      tornDown = true; // already gone
+    }
   }
+
+  // 2. Remove the associated volume (docker-compose naming: <name>_home)
+  const volumeName = `${instanceName}_home`;
+  try {
+    await execFileAsync("docker", ["volume", "rm", "-f", volumeName], { timeout });
+    logger.info({ instanceName, volumeName }, "Docker volume removed");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!msg.includes("No such volume")) {
+      logger.warn({ err, instanceName, volumeName }, "Failed to remove Docker volume");
+    }
+  }
+
+  return tornDown;
 }
 
 /**
  * Suspend (stop) the instance's infrastructure via `sindri stop`.
- * All 7 providers (docker, fly, devpod, e2b, kubernetes, runpod, northflank)
- * implement stop through the Provider trait.
+ * Falls back to `docker stop` for the docker provider.
  */
 async function suspendInstanceInfra(instanceName: string, provider: string): Promise<void> {
-  if (!isCliConfigured()) {
-    logger.warn(
-      { instanceName, provider },
-      "Sindri CLI not configured — cannot stop infrastructure",
-    );
+  if (isCliConfigured()) {
+    let tmpFile: string | null = null;
+    try {
+      const minimalYaml = [
+        'version: "3.0"',
+        `name: ${instanceName}`,
+        "deployment:",
+        `  provider: ${provider}`,
+      ].join("\n");
+
+      tmpFile = join(tmpdir(), `sindri-stop-${instanceName}-${Date.now()}.yaml`);
+      await writeFile(tmpFile, minimalYaml, "utf-8");
+
+      await runCliCapture(["stop", "--config", tmpFile]);
+      logger.info({ instanceName, provider }, "Instance stopped via Sindri CLI");
+      return;
+    } catch (err) {
+      logger.warn({ err, instanceName, provider }, "Sindri CLI stop failed");
+    } finally {
+      if (tmpFile) await unlink(tmpFile).catch(() => undefined);
+    }
+  }
+
+  // Fallback: direct Docker stop
+  if (provider === "docker") {
+    try {
+      await execFileAsync("docker", ["stop", instanceName], { timeout: 30_000 });
+      logger.info({ instanceName }, "Docker container stopped");
+    } catch (err) {
+      logger.warn({ err, instanceName }, "Failed to stop Docker container");
+    }
     return;
   }
 
-  let tmpFile: string | null = null;
-  try {
-    const minimalYaml = [
-      'version: "3.0"',
-      `name: ${instanceName}`,
-      "deployment:",
-      `  provider: ${provider}`,
-    ].join("\n");
-
-    tmpFile = join(tmpdir(), `sindri-stop-${instanceName}-${Date.now()}.yaml`);
-    await writeFile(tmpFile, minimalYaml, "utf-8");
-
-    await runCliCapture(["stop", "--config", tmpFile]);
-    logger.info({ instanceName, provider }, "Instance stopped via Sindri CLI");
-  } catch (err) {
-    logger.warn({ err, instanceName, provider }, "Sindri CLI stop failed");
-  } finally {
-    if (tmpFile) await unlink(tmpFile).catch(() => undefined);
-  }
+  logger.warn(
+    { instanceName, provider },
+    "Sindri CLI not configured and no fallback — cannot stop",
+  );
 }
 
 /**
  * Resume (start) the instance's infrastructure via `sindri start`.
- * All 7 providers (docker, fly, devpod, e2b, kubernetes, runpod, northflank)
- * implement start through the Provider trait.
+ * Falls back to `docker start` for the docker provider.
  */
 async function resumeInstanceInfra(instanceName: string, provider: string): Promise<void> {
-  if (!isCliConfigured()) {
-    logger.warn(
-      { instanceName, provider },
-      "Sindri CLI not configured — cannot start infrastructure",
-    );
+  if (isCliConfigured()) {
+    let tmpFile: string | null = null;
+    try {
+      const minimalYaml = [
+        'version: "3.0"',
+        `name: ${instanceName}`,
+        "deployment:",
+        `  provider: ${provider}`,
+      ].join("\n");
+
+      tmpFile = join(tmpdir(), `sindri-start-${instanceName}-${Date.now()}.yaml`);
+      await writeFile(tmpFile, minimalYaml, "utf-8");
+
+      await runCliCapture(["start", "--config", tmpFile]);
+      logger.info({ instanceName, provider }, "Instance started via Sindri CLI");
+      return;
+    } catch (err) {
+      logger.warn({ err, instanceName, provider }, "Sindri CLI start failed");
+    } finally {
+      if (tmpFile) await unlink(tmpFile).catch(() => undefined);
+    }
+  }
+
+  // Fallback: direct Docker start
+  if (provider === "docker") {
+    try {
+      await execFileAsync("docker", ["start", instanceName], { timeout: 30_000 });
+      logger.info({ instanceName }, "Docker container started");
+    } catch (err) {
+      logger.warn({ err, instanceName }, "Failed to start Docker container");
+    }
     return;
   }
 
-  let tmpFile: string | null = null;
-  try {
-    const minimalYaml = [
-      'version: "3.0"',
-      `name: ${instanceName}`,
-      "deployment:",
-      `  provider: ${provider}`,
-    ].join("\n");
-
-    tmpFile = join(tmpdir(), `sindri-start-${instanceName}-${Date.now()}.yaml`);
-    await writeFile(tmpFile, minimalYaml, "utf-8");
-
-    await runCliCapture(["start", "--config", tmpFile]);
-    logger.info({ instanceName, provider }, "Instance started via Sindri CLI");
-  } catch (err) {
-    logger.warn({ err, instanceName, provider }, "Sindri CLI start failed");
-  } finally {
-    if (tmpFile) await unlink(tmpFile).catch(() => undefined);
-  }
+  logger.warn(
+    { instanceName, provider },
+    "Sindri CLI not configured and no fallback — cannot start",
+  );
 }
 
 function publishLifecycleEvent(

@@ -1,5 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useCallback, useState } from "react";
+import { useSession } from "@/lib/auth-client";
+import { fetchWsTicket } from "@/hooks/useWsTicket";
 import { metricsApi } from "@/lib/metricsApi";
 import type { TimeRange, MetricsStreamMessage, MetricsDataPoint } from "@/types/metrics";
 
@@ -68,6 +70,9 @@ export function useProcessList(instanceId: string) {
  * to a local ring buffer. Returns the latest N data points per metric.
  */
 export function useMetricsStream(instanceId: string) {
+  const { data: session } = useSession();
+  const isAuthenticated = Boolean(session?.session);
+
   const [realtimePoints, setRealtimePoints] = useState<RealtimePoints>({
     cpu: [],
     memory: [],
@@ -108,7 +113,7 @@ export function useMetricsStream(instanceId: string) {
     [instanceId],
   );
 
-  const connect = useCallback(() => {
+  const connect = useCallback(async () => {
     const existing = wsRef.current;
     if (existing?.readyState === WebSocket.OPEN || existing?.readyState === WebSocket.CONNECTING) {
       return;
@@ -119,9 +124,12 @@ export function useMetricsStream(instanceId: string) {
       wsRef.current = null;
     }
 
+    const ticket = await fetchWsTicket();
+    if (!ticket) return; // not authenticated — skip silently
+
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(
-      `${proto}//${window.location.host}/ws/metrics/stream?instanceId=${instanceId}`,
+      `${proto}//${window.location.host}/ws/metrics/stream?instanceId=${instanceId}&ticket=${encodeURIComponent(ticket)}`,
     );
     wsRef.current = ws;
 
@@ -133,19 +141,24 @@ export function useMetricsStream(instanceId: string) {
       wsRef.current = null;
       if (reconnectAttemptsRef.current < MAX_RECONNECT) {
         reconnectAttemptsRef.current++;
-        reconnectTimerRef.current = setTimeout(connect, 2000 * reconnectAttemptsRef.current);
+        reconnectTimerRef.current = setTimeout(
+          () => void connect(),
+          2000 * reconnectAttemptsRef.current,
+        );
       }
     });
     ws.addEventListener("error", () => ws.close());
   }, [instanceId, handleMessage]);
 
   useEffect(() => {
-    connect();
+    if (!isAuthenticated) return;
+
+    void connect();
     return () => {
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       wsRef.current?.close();
     };
-  }, [connect]);
+  }, [connect, isAuthenticated]);
 
   return realtimePoints;
 }

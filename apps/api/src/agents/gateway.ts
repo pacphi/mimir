@@ -702,8 +702,13 @@ export function attachWebSocketGateway(server: Server): WebSocketServer {
     }
 
     // Route main gateway (agents + browser clients)
-    // Draupnir agent connects to /ws/agent; browser clients to /ws
-    if (pathname === "/ws" || pathname === "/ws/agent") {
+    // Draupnir agent connects to /ws/agent; browser clients to /ws (or /ws/instances, /ws/fleet)
+    if (
+      pathname === "/ws" ||
+      pathname === "/ws/agent" ||
+      pathname === "/ws/instances" ||
+      pathname === "/ws/fleet"
+    ) {
       wss.handleUpgrade(req, socket, head, (ws) => {
         wss.emit("connection", ws, req);
       });

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
 import type { Terminal } from "@xterm/xterm";
+import { fetchWsTicket } from "@/hooks/useWsTicket";
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
 
@@ -41,13 +42,16 @@ export function useTerminalWebSocket({
     }
   }, []);
 
-  const connectRef = useRef<(() => void) | null>(null);
+  const connectRef = useRef<(() => Promise<void>) | null>(null);
 
-  const connect = useCallback((): void => {
+  const connect = useCallback(async (): Promise<void> => {
     if (!sessionId || !terminal || isUnmountedRef.current) return;
 
+    const ticket = await fetchWsTicket();
+    if (!ticket || isUnmountedRef.current) return;
+
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const url = `${protocol}//${window.location.host}/ws/terminal/${sessionId}`;
+    const url = `${protocol}//${window.location.host}/ws/terminal/${sessionId}?ticket=${encodeURIComponent(ticket)}`;
 
     onStatusChangeRef.current("connecting");
 
@@ -107,7 +111,7 @@ export function useTerminalWebSocket({
         reconnectTimerRef.current = setTimeout(() => {
           if (!isUnmountedRef.current) {
             onReconnectRef.current?.();
-            connectRef.current?.();
+            void connectRef.current?.();
           }
         }, reconnectDelay * reconnectCountRef.current);
       } else {
@@ -136,7 +140,7 @@ export function useTerminalWebSocket({
     isUnmountedRef.current = false;
 
     if (sessionId && terminal) {
-      connect();
+      void connect();
     }
 
     return () => {

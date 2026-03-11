@@ -1,5 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
+import { useSession } from "@/lib/auth-client";
+import { fetchWsTicket } from "@/hooks/useWsTicket";
 import { fleetApi } from "@/api/fleet";
 import type { FleetWebSocketMessage } from "@/types/fleet";
 
@@ -32,15 +34,24 @@ export function useFleetDeployments() {
 
 export function useFleetWebSocket() {
   const queryClient = useQueryClient();
+  const { data: session } = useSession();
+  const isAuthenticated = Boolean(session?.session);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const attemptsRef = useRef(0);
   const MAX_ATTEMPTS = 5;
 
   useEffect(() => {
-    function connect() {
+    if (!isAuthenticated) return;
+
+    async function connect() {
+      const ticket = await fetchWsTicket();
+      if (!ticket) return; // not authenticated — skip silently
+
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const ws = new WebSocket(`${protocol}//${window.location.host}/ws/fleet`);
+      const ws = new WebSocket(
+        `${protocol}//${window.location.host}/ws?ticket=${encodeURIComponent(ticket)}`,
+      );
       wsRef.current = ws;
 
       ws.addEventListener("message", (event) => {
@@ -78,18 +89,18 @@ export function useFleetWebSocket() {
         wsRef.current = null;
         if (attemptsRef.current < MAX_ATTEMPTS) {
           attemptsRef.current++;
-          reconnectTimerRef.current = setTimeout(connect, 2000 * attemptsRef.current);
+          reconnectTimerRef.current = setTimeout(() => void connect(), 2000 * attemptsRef.current);
         }
       });
 
       ws.addEventListener("error", () => ws.close());
     }
 
-    connect();
+    void connect();
 
     return () => {
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       wsRef.current?.close();
     };
-  }, [queryClient]);
+  }, [queryClient, isAuthenticated]);
 }

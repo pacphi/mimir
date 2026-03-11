@@ -1,11 +1,16 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useSession } from "@/lib/auth-client";
+import { fetchWsTicket } from "@/hooks/useWsTicket";
 import type { HeartbeatMessage, InstanceUpdateMessage, WebSocketMessage } from "@/types/instance";
 
-const WS_URL = `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws/instances`;
+const WS_BASE = `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws`;
 
 export function useInstanceWebSocket() {
   const queryClient = useQueryClient();
+  const { data: session } = useSession();
+  const isAuthenticated = Boolean(session?.session);
+
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
@@ -61,10 +66,13 @@ export function useInstanceWebSocket() {
     [queryClient],
   );
 
-  const connect = useCallback(() => {
+  const connect = useCallback(async () => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
-    const ws = new WebSocket(WS_URL);
+    const ticket = await fetchWsTicket();
+    if (!ticket) return; // not authenticated — skip silently
+
+    const ws = new WebSocket(`${WS_BASE}?ticket=${encodeURIComponent(ticket)}`);
     wsRef.current = ws;
 
     ws.addEventListener("open", () => {
@@ -78,7 +86,7 @@ export function useInstanceWebSocket() {
       if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
         reconnectAttemptsRef.current++;
         reconnectTimerRef.current = setTimeout(() => {
-          connect();
+          void connect();
         }, RECONNECT_DELAY_MS * reconnectAttemptsRef.current);
       }
     });
@@ -89,12 +97,14 @@ export function useInstanceWebSocket() {
   }, [handleMessage]);
 
   useEffect(() => {
-    connect();
+    if (!isAuthenticated) return;
+
+    void connect();
     return () => {
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
       }
       wsRef.current?.close();
     };
-  }, [connect]);
+  }, [connect, isAuthenticated]);
 }

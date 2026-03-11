@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { useDeploymentWizardStore } from "@/stores/deploymentWizardStore";
 import { providersApi } from "@/api/deployments";
 import { catalogProviderFor, PROVIDERS_WITHOUT_REGION } from "@/types/provider-options";
+import { HOME_DATA_MIN_SIZE_GB } from "@/lib/sindri-constraints";
 import type { ComputeSize } from "@/types/deployment";
 
 // ─── Reusable scroll container with up/down indicators ──────────────────────
@@ -194,10 +195,17 @@ export function Step4RegionCompute() {
   const gpuSizes = sizes.filter((s) => s.category === "gpu");
 
   function handleSelectSize(size: ComputeSize) {
+    // If the user explicitly increased home_data volume size in Step 2,
+    // that takes precedence over the compute option's bundled storage.
+    const userOverrodeVolume = store.homeDataSizeGb > HOME_DATA_MIN_SIZE_GB;
+    const storageGb = userOverrodeVolume
+      ? Math.max(store.homeDataSizeGb, size.storage_gb)
+      : size.storage_gb;
+
     store.setCompute({
       vmSize: size.id,
       memoryGb: size.memory_gb,
-      storageGb: size.storage_gb,
+      storageGb,
       vcpus: size.vcpus,
     });
   }

@@ -137,13 +137,17 @@ export function GuidedWizard({ onCancel, cliAvailable = true }: GuidedWizardProp
         return acc;
       }, {});
 
+      // If the user overrode home_data volume size, ensure storage_gb
+      // is at least as large as the user-specified volume.
+      const effectiveStorageGb = Math.max(storeState.storageGb || 20, storeState.homeDataSizeGb);
+
       const response = await deploymentsApi.create({
         name: storeState.name,
         provider: toApiProvider(storeState.provider),
         region: storeState.region || "default",
         vm_size: storeState.vmSize || "medium",
         memory_gb: storeState.memoryGb || 4,
-        storage_gb: storeState.storageGb || 20,
+        storage_gb: effectiveStorageGb,
         yaml_config: storeState.assembledYaml,
         secrets: Object.keys(secretsRecord).length > 0 ? secretsRecord : undefined,
       });

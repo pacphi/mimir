@@ -18,14 +18,19 @@ export interface FleetStats {
   updated_at: string;
 }
 
+/** Exclude terminal states from fleet counts — destroyed instances are historical. */
+const ACTIVE_INSTANCE_FILTER = { status: { not: "DESTROYED" as const } };
+
 export async function getFleetStats(): Promise<FleetStats> {
   const [statusCounts, providerCounts, sessionCount] = await Promise.all([
     db.instance.groupBy({
       by: ["status"],
+      where: ACTIVE_INSTANCE_FILTER,
       _count: { status: true },
     }),
     db.instance.groupBy({
       by: ["provider"],
+      where: ACTIVE_INSTANCE_FILTER,
       _count: { provider: true },
     }),
     db.terminalSession.count({ where: { status: "ACTIVE" } }),
@@ -85,6 +90,7 @@ export async function getFleetGeo(): Promise<GeoPin[]> {
   }
 
   const instances = await db.instance.findMany({
+    where: ACTIVE_INSTANCE_FILTER,
     select: {
       id: true,
       region: true,

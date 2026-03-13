@@ -24,6 +24,10 @@ export interface VolumeEntry {
 export interface ImageDefaults {
   registry: string;
   version: string;
+  /** Local image name for dev mode (e.g. "sindri:latest") */
+  defaultImage: string;
+  /** true when NODE_ENV !== "production" */
+  isDev: boolean;
 }
 
 export interface AssemblerInput {
@@ -125,8 +129,9 @@ export function assembleYaml(input: AssemblerInput): string {
   lines.push("deployment:");
   lines.push(`  provider: ${apiProvider}`);
 
-  // Image config — only emit when user has explicitly set image fields.
-  // When omitted, the API will use --from-source (dev) or inject defaults (prod).
+  // Image config — always emit so the YAML is self-contained and portable.
+  // In dev mode, default to a local image (deployment.image: sindri:latest).
+  // In production, default to registry-based image_config.
   const img = input.imageConfig;
   const imgDefaults = input.imageDefaults;
   const hasExplicitImage =
@@ -137,7 +142,9 @@ export function assembleYaml(input: AssemblerInput): string {
     img.pullPolicy ||
     img.verifySignature ||
     img.verifyProvenance;
+
   if (hasExplicitImage) {
+    // User explicitly configured image fields — always use image_config
     lines.push("  image_config:");
     lines.push(`    registry: ${yamlValue(img.registry || imgDefaults.registry)}`);
     if (img.version || (!img.tagOverride && !img.digest)) {
@@ -148,6 +155,14 @@ export function assembleYaml(input: AssemblerInput): string {
     if (img.pullPolicy) lines.push(`    pull_policy: ${img.pullPolicy}`);
     if (img.verifySignature) lines.push("    verify_signature: true");
     if (img.verifyProvenance) lines.push("    verify_provenance: true");
+  } else if (imgDefaults.isDev) {
+    // Dev mode — use local image directly
+    lines.push(`  image: ${imgDefaults.defaultImage}`);
+  } else {
+    // Production — use registry-based image_config with defaults
+    lines.push("  image_config:");
+    lines.push(`    registry: ${yamlValue(imgDefaults.registry)}`);
+    lines.push(`    version: ${yamlValue(imgDefaults.version)}`);
   }
 
   // Resources

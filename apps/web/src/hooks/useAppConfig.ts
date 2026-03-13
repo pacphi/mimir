@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 export interface AppConfig {
   authBypass: boolean;
+  nodeEnv: string;
   sindriDefaultImage: string;
   sindriImageRegistry: string;
   sindriImageVersion: string;
@@ -9,6 +10,7 @@ export interface AppConfig {
 
 const DEFAULTS: AppConfig = {
   authBypass: false,
+  nodeEnv: "development",
   sindriDefaultImage: "sindri:latest",
   sindriImageRegistry: "ghcr.io/pacphi/sindri",
   sindriImageVersion: "latest",

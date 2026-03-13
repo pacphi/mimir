@@ -47,8 +47,9 @@ export interface ListInstancesFilter {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Register a new instance or update an existing one by name.
- * Returns the created/updated instance record.
+ * Register a new instance or update an existing active one by name.
+ * If there is an active (non-DESTROYED/ERROR) instance with the same name,
+ * update it. Otherwise create a new record (preserving historical ones).
  */
 export async function registerInstance(input: RegisterInstanceInput): Promise<Instance> {
   // Resolve geo coordinates via multi-fallback chain
@@ -69,29 +70,32 @@ export async function registerInstance(input: RegisterInstanceInput): Promise<In
       }
     : {};
 
-  const instance = await db.instance.upsert({
-    where: { name: input.name },
-    create: {
+  // Find the active instance with this name (if any)
+  const existing = await db.instance.findFirst({
+    where: {
       name: input.name,
-      provider: input.provider,
-      region: input.region ?? null,
-      extensions: input.extensions,
-      config_hash: input.configHash ?? null,
-      ssh_endpoint: input.sshEndpoint ?? null,
-      status: "RUNNING",
-      ...geoFields,
-    },
-    update: {
-      provider: input.provider,
-      region: input.region ?? null,
-      extensions: input.extensions,
-      config_hash: input.configHash ?? null,
-      ssh_endpoint: input.sshEndpoint ?? null,
-      status: "RUNNING",
-      updated_at: new Date(),
-      ...geoFields,
+      status: { notIn: ["DESTROYED", "ERROR"] },
     },
   });
+
+  const instanceData = {
+    provider: input.provider,
+    region: input.region ?? null,
+    extensions: input.extensions,
+    config_hash: input.configHash ?? null,
+    ssh_endpoint: input.sshEndpoint ?? null,
+    status: "RUNNING" as const,
+    ...geoFields,
+  };
+
+  const instance = existing
+    ? await db.instance.update({
+        where: { id: existing.id },
+        data: { ...instanceData, updated_at: new Date() },
+      })
+    : await db.instance.create({
+        data: { name: input.name, ...instanceData },
+      });
 
   // Record DEPLOY event
   await db.event.create({
@@ -140,10 +144,6 @@ export async function listInstances(filter: ListInstancesFilter = {}): Promise<{
   if (filter.provider) where.provider = filter.provider;
   if (filter.status) {
     where.status = filter.status;
-  } else {
-    // By default, hide DESTROYED instances — they're retained for audit but
-    // shouldn't clutter the active fleet view. Users can explicitly filter by DESTROYED.
-    where.status = { not: "DESTROYED" };
   }
   if (filter.region) where.region = filter.region;
 

@@ -206,7 +206,7 @@ export async function getFleetDeployments(): Promise<FleetDeploymentsResponse> {
   }
 
   const total = deployments.length;
-  const successRate = total > 0 ? Math.round((totalSucceeded / total) * 100) : 100;
+  const successRate = total > 0 ? totalSucceeded / total : 1;
 
   return {
     activity: Array.from(buckets.values()),

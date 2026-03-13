@@ -147,7 +147,9 @@ lifecycle.post("/:id/clone", rateLimitStrict, requireRole("OPERATOR"), async (c)
       return c.json({ error: "Not Found", message: `Instance '${id}' not found` }, 404);
     }
 
-    const nameConflict = await db.instance.findUnique({ where: { name: parseResult.data.name } });
+    const nameConflict = await db.instance.findFirst({
+      where: { name: parseResult.data.name, status: { notIn: ["DESTROYED", "ERROR"] } },
+    });
     if (nameConflict) {
       return c.json(
         {
@@ -305,6 +307,7 @@ lifecycle.post("/:id/redeploy", rateLimitStrict, requireRole("OPERATOR"), async 
     });
 
     // Actually run the deployment with --force to tear down existing container/volumes
+    // Pass existingInstanceId so the deployment updates the same record
     const deployment = await createDeployment({
       name: instance.name,
       provider: instance.provider,
@@ -315,6 +318,7 @@ lifecycle.post("/:id/redeploy", rateLimitStrict, requireRole("OPERATOR"), async 
       yaml_config: yamlConfig,
       initiated_by: c.get("auth")?.userId,
       force: true,
+      existingInstanceId: id,
     });
 
     logger.info(

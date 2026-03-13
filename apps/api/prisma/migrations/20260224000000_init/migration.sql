@@ -1,28 +1,19 @@
 -- Consolidated initial migration for Mimir
--- Replaces migrations 000–008 into a single idempotent baseline.
+-- Single baseline: all tables, enums, hypertables, and indexes in their final form.
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Extensions
 -- ─────────────────────────────────────────────────────────────────────────────
 
--- TimescaleDB: use DO block to handle version mismatch when the extension
--- was already loaded by the shared_preload_libraries setting.
-DO $$
-BEGIN
-  CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;
-EXCEPTION
-  WHEN SQLSTATE '42710' THEN
-    -- Extension already loaded with a different version; safe to ignore
-    NULL;
-END
-$$;
+-- TimescaleDB: IF NOT EXISTS handles the case where the extension is already installed.
+CREATE EXTENSION IF NOT EXISTS timescaledb;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Enums (all values in their final form)
 -- ─────────────────────────────────────────────────────────────────────────────
 
 CREATE TYPE "InstanceStatus" AS ENUM (
-  'RUNNING', 'STOPPED', 'DEPLOYING', 'DESTROYING', 'SUSPENDED', 'ERROR', 'UNKNOWN'
+  'RUNNING', 'STOPPED', 'DEPLOYING', 'DESTROYING', 'DESTROYED', 'SUSPENDED', 'ERROR', 'UNKNOWN'
 );
 
 CREATE TYPE "UserRole" AS ENUM ('ADMIN', 'OPERATOR', 'DEVELOPER', 'VIEWER');
@@ -91,29 +82,36 @@ CREATE TABLE "Instance" (
     "ssh_endpoint" TEXT,
     "status"       "InstanceStatus"  NOT NULL DEFAULT 'UNKNOWN',
     "team_id"      TEXT,
+    "geo_lat"      DOUBLE PRECISION,
+    "geo_lon"      DOUBLE PRECISION,
+    "geo_label"    TEXT,
+    "geo_source"   TEXT,
     "created_at"   TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
     "updated_at"   TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
 
     CONSTRAINT "Instance_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "Instance_name_key"     ON "Instance" ("name");
+CREATE INDEX "Instance_name_idx"           ON "Instance" ("name");
 CREATE INDEX "Instance_status_idx"         ON "Instance" ("status");
 CREATE INDEX "Instance_provider_idx"       ON "Instance" ("provider");
 CREATE INDEX "Instance_created_at_idx"     ON "Instance" ("created_at");
 CREATE INDEX "Instance_team_id_idx"        ON "Instance" ("team_id");
+CREATE INDEX "Instance_geo_lat_geo_lon_status_idx" ON "Instance" ("geo_lat", "geo_lon", "status");
 
 -- User (with all columns in final form)
 CREATE TABLE "User" (
-    "id"            TEXT        NOT NULL,
-    "email"         TEXT        NOT NULL,
-    "name"          TEXT,
-    "password_hash" TEXT        NOT NULL,
-    "role"          "UserRole"  NOT NULL DEFAULT 'DEVELOPER',
-    "is_active"     BOOLEAN     NOT NULL DEFAULT TRUE,
-    "last_login_at" TIMESTAMPTZ,
-    "created_at"    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    "updated_at"    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    "id"             TEXT        NOT NULL,
+    "email"          TEXT        NOT NULL,
+    "name"           TEXT,
+    "password_hash"  TEXT,
+    "role"           "UserRole"  NOT NULL DEFAULT 'VIEWER',
+    "is_active"      BOOLEAN     NOT NULL DEFAULT TRUE,
+    "email_verified" BOOLEAN     NOT NULL DEFAULT FALSE,
+    "image"          TEXT,
+    "last_login_at"  TIMESTAMPTZ,
+    "created_at"     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    "updated_at"     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     CONSTRAINT "User_pkey" PRIMARY KEY ("id")
 );
@@ -141,12 +139,14 @@ CREATE INDEX "Team_created_at_idx"    ON "Team" ("created_at");
 
 -- ApiKey
 CREATE TABLE "ApiKey" (
-    "id"         TEXT        NOT NULL,
-    "user_id"    TEXT        NOT NULL,
-    "key_hash"   TEXT        NOT NULL,
-    "name"       TEXT        NOT NULL,
-    "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    "expires_at" TIMESTAMPTZ,
+    "id"           TEXT        NOT NULL,
+    "user_id"      TEXT        NOT NULL,
+    "key_hash"     TEXT        NOT NULL,
+    "key_prefix"   TEXT,
+    "name"         TEXT        NOT NULL,
+    "created_at"   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    "expires_at"   TIMESTAMPTZ,
+    "last_used_at" TIMESTAMPTZ,
 
     CONSTRAINT "ApiKey_pkey"         PRIMARY KEY ("id"),
     CONSTRAINT "ApiKey_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
@@ -178,6 +178,67 @@ CREATE INDEX "TeamMember_user_id_idx" ON "TeamMember" ("user_id");
 ALTER TABLE "Instance"
     ADD CONSTRAINT "Instance_team_id_fkey"
         FOREIGN KEY ("team_id") REFERENCES "Team"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- Session (Better Auth)
+CREATE TABLE "Session" (
+    "id"         TEXT        NOT NULL,
+    "user_id"    TEXT        NOT NULL,
+    "token"      TEXT        NOT NULL,
+    "ip_address" TEXT,
+    "user_agent" TEXT,
+    "expires_at" TIMESTAMP(3) NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Session_pkey" PRIMARY KEY ("id")
+);
+
+CREATE UNIQUE INDEX "Session_token_key"     ON "Session"("token");
+CREATE INDEX "Session_user_id_idx"         ON "Session"("user_id");
+CREATE INDEX "Session_token_idx"           ON "Session"("token");
+CREATE INDEX "Session_expires_at_idx"      ON "Session"("expires_at");
+
+ALTER TABLE "Session" ADD CONSTRAINT "Session_user_id_fkey"
+    FOREIGN KEY ("user_id") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- Account (OAuth providers)
+CREATE TABLE "Account" (
+    "id"                       TEXT        NOT NULL,
+    "user_id"                  TEXT        NOT NULL,
+    "account_id"               TEXT        NOT NULL,
+    "provider_id"              TEXT        NOT NULL,
+    "access_token"             TEXT,
+    "refresh_token"            TEXT,
+    "access_token_expires_at"  TIMESTAMP(3),
+    "refresh_token_expires_at" TIMESTAMP(3),
+    "scope"                    TEXT,
+    "id_token"                 TEXT,
+    "password"                 TEXT,
+    "created_at"               TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at"               TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Account_pkey" PRIMARY KEY ("id")
+);
+
+CREATE UNIQUE INDEX "Account_provider_id_account_id_key" ON "Account"("provider_id", "account_id");
+CREATE INDEX "Account_user_id_idx"                      ON "Account"("user_id");
+
+ALTER TABLE "Account" ADD CONSTRAINT "Account_user_id_fkey"
+    FOREIGN KEY ("user_id") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- Verification (magic links and email verification)
+CREATE TABLE "Verification" (
+    "id"         TEXT        NOT NULL,
+    "identifier" TEXT        NOT NULL,
+    "value"      TEXT        NOT NULL,
+    "expires_at" TIMESTAMP(3) NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Verification_pkey" PRIMARY KEY ("id")
+);
+
+CREATE INDEX "Verification_identifier_idx" ON "Verification"("identifier");
 
 -- AuditLog
 CREATE TABLE "AuditLog" (
@@ -903,8 +964,10 @@ CREATE TABLE "CostEntry" (
     "compute_usd"  DOUBLE PRECISION NOT NULL DEFAULT 0,
     "storage_usd"  DOUBLE PRECISION NOT NULL DEFAULT 0,
     "network_usd"  DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "llm_usd"      DOUBLE PRECISION NOT NULL DEFAULT 0,
     "total_usd"    DOUBLE PRECISION NOT NULL DEFAULT 0,
     "currency"     TEXT             NOT NULL DEFAULT 'USD',
+    "source"       TEXT             NOT NULL DEFAULT 'estimated',
     "metadata"     JSONB,
     "created_at"   TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
 
@@ -961,3 +1024,42 @@ CREATE TABLE "RightSizingRecommendation" (
 CREATE INDEX "RightSizingRecommendation_instance_id_idx"    ON "RightSizingRecommendation" ("instance_id");
 CREATE INDEX "RightSizingRecommendation_savings_usd_mo_idx" ON "RightSizingRecommendation" ("savings_usd_mo");
 CREATE INDEX "RightSizingRecommendation_dismissed_idx"      ON "RightSizingRecommendation" ("dismissed");
+
+-- LlmUsageEntry (per-request LLM API usage tracking)
+CREATE TABLE "LlmUsageEntry" (
+    "id"                 TEXT             NOT NULL,
+    "instance_id"        TEXT             NOT NULL,
+    "timestamp"          TIMESTAMP(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "provider"           TEXT             NOT NULL,
+    "model"              TEXT             NOT NULL,
+    "operation"          TEXT,
+    "input_tokens"       INTEGER          NOT NULL DEFAULT 0,
+    "output_tokens"      INTEGER          NOT NULL DEFAULT 0,
+    "cache_read_tokens"  INTEGER,
+    "cache_write_tokens" INTEGER,
+    "cost_usd"           DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "source"             TEXT             NOT NULL DEFAULT 'agent',
+    "capture_tier"       TEXT,
+    "trace_id"           TEXT,
+    "metadata"           JSONB,
+
+    CONSTRAINT "LlmUsageEntry_pkey" PRIMARY KEY ("id")
+);
+
+CREATE INDEX "LlmUsageEntry_instance_id_timestamp_idx" ON "LlmUsageEntry"("instance_id", "timestamp");
+CREATE INDEX "LlmUsageEntry_timestamp_idx"             ON "LlmUsageEntry"("timestamp");
+CREATE INDEX "LlmUsageEntry_provider_model_idx"        ON "LlmUsageEntry"("provider", "model");
+
+ALTER TABLE "LlmUsageEntry" ADD CONSTRAINT "LlmUsageEntry_instance_id_fkey"
+    FOREIGN KEY ("instance_id") REFERENCES "Instance"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- Convert LlmUsageEntry to TimescaleDB hypertable (best-effort; no-op if TimescaleDB is unavailable)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
+    -- Drop the default PK so we can create a composite one
+    ALTER TABLE "LlmUsageEntry" DROP CONSTRAINT "LlmUsageEntry_pkey";
+    ALTER TABLE "LlmUsageEntry" ADD PRIMARY KEY ("id", "timestamp");
+    PERFORM create_hypertable('"LlmUsageEntry"', 'timestamp', migrate_data => true);
+  END IF;
+END $$;

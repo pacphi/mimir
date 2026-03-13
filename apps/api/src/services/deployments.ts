@@ -34,6 +34,8 @@ export interface CreateDeploymentInput {
   initiated_by?: string;
   /** Force recreation — tears down existing container/volumes before deploying */
   force?: boolean;
+  /** When redeploying, pass the existing instance ID to update it instead of creating a new record */
+  existingInstanceId?: string;
 }
 
 function hashYaml(yaml: string): string {
@@ -135,6 +137,7 @@ function parseExtensionsFromYaml(yaml: string): string[] {
   const lines = yaml.split("\n");
   const extensions: string[] = [];
   let inExtensions = false;
+  let inActiveList = false;
 
   for (const line of lines) {
     if (/^extensions:\s*$/.test(line) || /^extensions:\s*\[/.test(line)) {
@@ -151,12 +154,24 @@ function parseExtensionsFromYaml(yaml: string): string[] {
       continue;
     }
     if (inExtensions) {
-      const itemMatch = line.match(/^\s+-\s+(.+)/);
-      if (itemMatch) {
-        extensions.push(itemMatch[1].trim());
-      } else if (line.trim() !== "" && !/^\s+-/.test(line)) {
-        // Reached a different top-level key
+      // Detect `active:` or `additional:` sub-keys
+      if (/^\s+active:\s*$/.test(line) || /^\s+additional:\s*$/.test(line)) {
+        inActiveList = true;
+        continue;
+      }
+      // Detect other sub-keys like `auto_install:`, `profile:`
+      if (/^\s+\w+:/.test(line) && !/^\s+-/.test(line)) {
+        inActiveList = false;
+        continue;
+      }
+      // Reached a new top-level key — stop
+      if (line.trim() !== "" && !line.startsWith(" ") && !line.startsWith("\t")) {
         break;
+      }
+      // Collect list items (at any nesting level within extensions)
+      const itemMatch = line.match(/^\s+-\s+(.+)/);
+      if (itemMatch && (inActiveList || inExtensions)) {
+        extensions.push(itemMatch[1].trim());
       }
     }
   }
@@ -399,6 +414,7 @@ async function runProvisioningFlow(
 
   let tmpFile: string | null = null;
   let yamlByteLength = 0;
+  let createdInstanceId: string | null = null;
 
   try {
     // ── IN_PROGRESS ──────────────────────────────────────────────────────────
@@ -431,14 +447,14 @@ async function runProvisioningFlow(
     const secretNames = parseSecretNamesFromYaml(resolvedYaml);
     const resolvedSecrets: Record<string, string> = {};
 
-    // Look up existing instance for vault resolution
-    const existingInstance = await db.instance.findFirst({
+    // Look up the most recent instance with this name for vault secret
+    // resolution. Prefer an active instance, fall back to any historical one.
+    const vaultInstance = await db.instance.findFirst({
       where: { name: input.name },
+      orderBy: { created_at: "desc" },
       select: { id: true },
     });
-    const vaultSecrets = existingInstance
-      ? await resolveDeploymentSecrets(existingInstance.id)
-      : {};
+    const vaultSecrets = vaultInstance ? await resolveDeploymentSecrets(vaultInstance.id) : {};
 
     for (const name of secretNames) {
       const value = input.secrets?.[name] ?? vaultSecrets[name] ?? process.env[name];
@@ -452,27 +468,78 @@ async function runProvisioningFlow(
     resolvedSecrets.SINDRI_CONSOLE_URL = consoleUrl;
     if (consoleApiKey) resolvedSecrets.SINDRI_CONSOLE_API_KEY = consoleApiKey;
 
-    // ── Pre-create instance record ───────────────────────────────────────────
-    // Create/update the instance before running the CLI so that:
-    //   1. We have a stable instance ID to pass as SINDRI_INSTANCE_ID
-    //   2. The Draupnir agent can authenticate via X-Instance-ID on WebSocket
+    // ── Resolve or create instance record ───────────────────────────────────
+    // Two paths:
+    //   1. Redeploy (existingInstanceId set) → update the existing record
+    //   2. New deploy → create a fresh record (old DESTROYED/ERROR preserved)
     const parsedExtensions = ensureDraupnir(parseExtensionsFromYaml(resolvedYaml));
-    const instance = await db.instance.upsert({
-      where: { name: input.name },
-      create: {
-        name: input.name,
-        provider: input.provider,
-        region: input.region,
-        extensions: parsedExtensions,
-        status: "DEPLOYING",
-      },
-      update: {
-        provider: input.provider,
-        region: input.region,
-        extensions: parsedExtensions,
-        status: "DEPLOYING",
-      },
-    });
+
+    let instance: { id: string; name: string };
+
+    if (input.existingInstanceId) {
+      // ── Redeploy path: update existing instance ────────────────────────
+      instance = await db.instance.update({
+        where: { id: input.existingInstanceId },
+        data: {
+          provider: input.provider,
+          region: input.region,
+          extensions: parsedExtensions,
+          status: "DEPLOYING",
+          updated_at: new Date(),
+        },
+        select: { id: true, name: true },
+      });
+    } else {
+      // ── New deploy path: check name conflicts, create fresh record ─────
+      const activeInstance = await db.instance.findFirst({
+        where: {
+          name: input.name,
+          status: { notIn: ["DESTROYED", "ERROR"] },
+        },
+        select: { id: true, status: true },
+      });
+
+      if (activeInstance && !input.force) {
+        const message = `Instance '${input.name}' already exists with status ${activeInstance.status}`;
+        appendLog(`ERROR: ${message}`);
+        await db.deployment
+          .update({
+            where: { id: deploymentId },
+            data: {
+              status: "FAILED",
+              error: message,
+              completed_at: new Date(),
+              logs: logLines.join("\n"),
+            },
+          })
+          .catch((dbErr: unknown) =>
+            logger.warn({ dbErr, deploymentId }, "Failed to persist name-conflict failure"),
+          );
+        await emitProgress(deploymentId, message, { type: "error", status: "FAILED" });
+        return;
+      }
+
+      // Auto-force when there are prior DESTROYED/ERROR instances with the
+      // same name so the CLI tears down any leftover Docker containers/volumes.
+      const hasHistoricalInstance = await db.instance.count({
+        where: { name: input.name, status: { in: ["DESTROYED", "ERROR"] } },
+      });
+      if (hasHistoricalInstance > 0) {
+        input.force = true;
+      }
+
+      instance = await db.instance.create({
+        data: {
+          name: input.name,
+          provider: input.provider,
+          region: input.region,
+          extensions: parsedExtensions,
+          status: "DEPLOYING",
+        },
+      });
+    }
+
+    createdInstanceId = instance.id;
 
     // Pass the Mimir-assigned instance ID so Draupnir can identify itself
     resolvedSecrets.SINDRI_INSTANCE_ID = instance.id;
@@ -547,17 +614,19 @@ async function runProvisioningFlow(
       );
     await emitProgress(deploymentId, userMessage, { type: "error", status: "FAILED" });
     // Mark pre-created instance as ERROR if the CLI deploy failed
-    await db.instance
-      .updateMany({
-        where: { name: input.name, status: "DEPLOYING" },
-        data: { status: "ERROR", updated_at: new Date() },
-      })
-      .catch((dbErr: unknown) =>
-        logger.warn(
-          { dbErr, deploymentId },
-          "Failed to mark instance as ERROR after deploy failure",
-        ),
-      );
+    if (createdInstanceId) {
+      await db.instance
+        .update({
+          where: { id: createdInstanceId },
+          data: { status: "ERROR", updated_at: new Date() },
+        })
+        .catch((dbErr: unknown) =>
+          logger.warn(
+            { dbErr, deploymentId },
+            "Failed to mark instance as ERROR after deploy failure",
+          ),
+        );
+    }
     logger.error({ err, deploymentId }, "Deployment failed");
   } finally {
     // ── Secure cleanup ────────────────────────────────────────────────────────

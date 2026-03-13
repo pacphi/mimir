@@ -78,6 +78,7 @@ export function createApp(): Hono {
   app.get("/api/config", (c) => {
     return c.json({
       authBypass: isDevAuthBypassEnabled(),
+      nodeEnv: process.env.NODE_ENV || "development",
       sindriDefaultImage: process.env.SINDRI_DEFAULT_IMAGE || "sindri:latest",
       sindriImageRegistry: process.env.SINDRI_IMAGE_REGISTRY || "ghcr.io/pacphi/sindri",
       sindriImageVersion: process.env.SINDRI_IMAGE_VERSION || "latest",

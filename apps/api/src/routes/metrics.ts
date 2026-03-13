@@ -410,16 +410,80 @@ instanceMetrics.get("/:id/extensions", rateLimitDefault, async (c) => {
   try {
     const instance = await db.instance.findUnique({
       where: { id },
-      select: { id: true, extensions: true, status: true, updated_at: true },
+      select: {
+        id: true,
+        name: true,
+        extensions: true,
+        status: true,
+        updated_at: true,
+        provider: true,
+      },
     });
     if (!instance) {
       return c.json({ error: "Not Found", message: `Instance '${id}' not found` }, 404);
     }
 
+    // For Docker instances, get real extension status from the container
+    if (instance.provider === "docker" && instance.status === "RUNNING") {
+      try {
+        const { execFile } = await import("node:child_process");
+        const { promisify } = await import("node:util");
+        const execFileAsync = promisify(execFile);
+        const { stdout } = await execFileAsync(
+          "docker",
+          [
+            "exec",
+            "-u",
+            "developer",
+            "-e",
+            "HOME=/alt/home/developer",
+            instance.name,
+            "sindri",
+            "extension",
+            "status",
+            "--json",
+          ],
+          { timeout: 10_000 },
+        );
+
+        const statusData = JSON.parse(stdout) as Array<{
+          name: string;
+          version: string;
+          status: string;
+          status_time: string;
+        }>;
+
+        const extensionStatuses = statusData.map((ext) => ({
+          name: ext.name,
+          status:
+            ext.status === "installed"
+              ? ("healthy" as const)
+              : ext.status === "installing"
+                ? ("installing" as const)
+                : ("error" as const),
+          version: ext.version,
+          lastChecked: ext.status_time || instance.updated_at.toISOString(),
+        }));
+
+        return c.json({
+          instanceId: id,
+          instanceStatus: instance.status,
+          extensions: extensionStatuses,
+        });
+      } catch (dockerErr) {
+        logger.debug(
+          { err: dockerErr, instanceId: id },
+          "Failed to get live extension status, falling back to DB",
+        );
+        // Fall through to DB-based status below
+      }
+    }
+
+    // Fallback: use DB-stored extension list with inferred status
     const isOnline = instance.status === "RUNNING";
     const extensionStatuses = instance.extensions.map((name) => ({
       name,
-      status: isOnline ? "healthy" : "unknown",
+      status: isOnline ? ("healthy" as const) : ("unknown" as const),
       lastChecked: instance.updated_at.toISOString(),
     }));
 

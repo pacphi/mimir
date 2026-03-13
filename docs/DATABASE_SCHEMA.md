@@ -12,7 +12,7 @@ Root aggregate for managed environments.
 | Column           | Type             | Notes                                                 |
 | ---------------- | ---------------- | ----------------------------------------------------- |
 | `id`             | String           | PK (cuid)                                             |
-| `name`           | String           | Unique                                                |
+| `name`           | String           | Indexed (not unique — allows reuse after destroy)     |
 | `provider`       | String           | Cloud provider                                        |
 | `region`         | String           | Provider region                                       |
 | `extensions`     | String[]         | Installed extension names                             |
@@ -87,17 +87,17 @@ Lifecycle events for instances.
 
 ### User
 
-| Column          | Type       | Notes         |
-| --------------- | ---------- | ------------- |
-| `id`            | String     | PK            |
-| `email`         | String     | Unique        |
-| `name`          | String     |               |
-| `password_hash` | String     |               |
-| `role`          | `UserRole` | Global role   |
-| `is_active`     | Boolean    | Default: true |
-| `last_login_at` | DateTime?  |               |
-| `created_at`    | DateTime   |               |
-| `updated_at`    | DateTime   |               |
+| Column          | Type       | Notes                     |
+| --------------- | ---------- | ------------------------- |
+| `id`            | String     | PK                        |
+| `email`         | String     | Unique                    |
+| `name`          | String     |                           |
+| `password_hash` | String?    | Nullable (SSO-only users) |
+| `role`          | `UserRole` | Default: VIEWER           |
+| `is_active`     | Boolean    | Default: true             |
+| `last_login_at` | DateTime?  |                           |
+| `created_at`    | DateTime   |                           |
+| `updated_at`    | DateTime   |                           |
 
 ### Team
 
@@ -600,7 +600,7 @@ Unique: `(name, instance_id)`
 
 | Enum               | Values                                                                                                                                                                                        |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `InstanceStatus`   | `RUNNING`, `STOPPED`, `DEPLOYING`, `DESTROYING`, `SUSPENDED`, `ERROR`, `UNKNOWN`                                                                                                              |
+| `InstanceStatus`   | `RUNNING`, `STOPPED`, `DEPLOYING`, `DESTROYING`, `DESTROYED`, `SUSPENDED`, `ERROR`, `UNKNOWN`                                                                                                 |
 | `EventType`        | `DEPLOY`, `REDEPLOY`, `CONNECT`, `DISCONNECT`, `BACKUP`, `RESTORE`, `DESTROY`, `SUSPEND`, `RESUME`, `EXTENSION_INSTALL`, `EXTENSION_REMOVE`, `HEARTBEAT_LOST`, `HEARTBEAT_RECOVERED`, `ERROR` |
 | `DeploymentStatus` | `PENDING`, `IN_PROGRESS`, `SUCCEEDED`, `FAILED`, `CANCELLED`                                                                                                                                  |
 
@@ -663,7 +663,7 @@ Unique: `(name, instance_id)`
 
 ## Migration Notes
 
-- Migrations are consolidated into a single `20260224000000_init` migration
-- Heartbeat and Metric hypertables are created via raw SQL in the migration (not expressible in Prisma schema)
+- All tables, enums, indexes, and TimescaleDB hypertables are consolidated into a single `20260224000000_init` migration — this includes auth tables (Session, Account, Verification), geo columns, LLM usage tracking, the DESTROYED status, and non-unique instance name index
+- Heartbeat, Metric, and LlmUsageEntry hypertables are created via raw SQL in the migration (not expressible in Prisma schema)
 - Prisma 7 uses the adapter pattern: `@prisma/adapter-pg` with `PrismaPg({ connectionString })`
 - `prisma.config.ts` at `apps/api/` holds the datasource URL and migration directory

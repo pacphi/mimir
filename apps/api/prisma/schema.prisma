@@ -154,7 +154,7 @@ enum TaskExecutionStatus {
 /// Represents a deployed Sindri environment instance across any provider.
 model Instance {
   id           String         @id @default(cuid())
-  name         String         @unique
+  name         String
   provider     String         // fly, docker, devpod, e2b, kubernetes, digitalocean, gcp, azure, runpod, northflank, ssh
   region       String?        // e.g. sea, iad, us-east-1
   extensions   String[]       // List of installed extension names
@@ -187,6 +187,7 @@ model Instance {
   config_snapshots            ConfigSnapshot[]
   team               Team?              @relation(fields: [team_id], references: [id], onDelete: SetNull)
 
+  @@index([name])
   @@index([status])
   @@index([provider])
   @@index([created_at])

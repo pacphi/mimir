@@ -29,9 +29,12 @@ interface Step7ReviewProps {
 export function Step7Review({ onDeploy, isDeploying, cliAvailable = true }: Step7ReviewProps) {
   const store = useDeploymentWizardStore();
   const { data: appConfig } = useAppConfig();
+  const isDev = (appConfig?.nodeEnv ?? "development") !== "production";
   const imageDefaults = {
     registry: appConfig?.sindriImageRegistry ?? "ghcr.io/pacphi/sindri",
     version: appConfig?.sindriImageVersion ?? "latest",
+    defaultImage: appConfig?.sindriDefaultImage ?? "sindri:latest",
+    isDev,
   };
 
   // Save as template state

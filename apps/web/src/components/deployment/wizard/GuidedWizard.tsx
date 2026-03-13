@@ -96,9 +96,12 @@ interface GuidedWizardProps {
 export function GuidedWizard({ onCancel, cliAvailable = true }: GuidedWizardProps) {
   const store = useDeploymentWizardStore();
   const { data: appConfig } = useAppConfig();
+  const isDev = (appConfig?.nodeEnv ?? "development") !== "production";
   const imageDefaults = {
     registry: appConfig?.sindriImageRegistry ?? "ghcr.io/pacphi/sindri",
     version: appConfig?.sindriImageVersion ?? "latest",
+    defaultImage: appConfig?.sindriDefaultImage ?? "sindri:latest",
+    isDev,
   };
   const [validationError, setValidationError] = useState<string | null>(null);
 

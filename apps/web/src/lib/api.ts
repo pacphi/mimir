@@ -63,6 +63,22 @@ export const instancesApi = {
     return apiFetch<Instance>(`/instances/${id}`);
   },
 
+  getConfig(id: string): Promise<{
+    instanceId: string;
+    name: string;
+    config: string;
+    configHash: string | null;
+    updatedAt: string;
+  } | null> {
+    return apiFetch<{
+      instanceId: string;
+      name: string;
+      config: string;
+      configHash: string | null;
+      updatedAt: string;
+    }>(`/instances/${id}/config`).catch(() => null);
+  },
+
   suspend(id: string): Promise<{ message: string; id: string; name: string; status: string }> {
     return apiFetch(`/instances/${id}/suspend`, { method: "POST" });
   },

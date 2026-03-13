@@ -19,3 +19,12 @@ export function useInstance(id: string) {
     enabled: Boolean(id),
   });
 }
+
+export function useInstanceConfig(id: string) {
+  return useQuery({
+    queryKey: ["instances", id, "config"],
+    queryFn: () => instancesApi.getConfig(id),
+    staleTime: 60_000,
+    enabled: Boolean(id),
+  });
+}

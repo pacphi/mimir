@@ -4,7 +4,7 @@
 
 export function MapLegend() {
   return (
-    <div className="absolute bottom-2 right-2 z-[1000] flex gap-3 text-xs text-muted-foreground bg-background/80 backdrop-blur-sm rounded px-2 py-1">
+    <div className="flex gap-3 text-xs text-muted-foreground">
       <span className="flex items-center gap-1">
         <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
         Running

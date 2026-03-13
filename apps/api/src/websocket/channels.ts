@@ -278,19 +278,58 @@ export function makeEnvelope<T>(
 // Helper — parse raw JSON into an Envelope, returns null on failure
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Map Draupnir's flat message type to Mimir's channel + type pair.
+ * Draupnir sends `{ type: "heartbeat" }`, Mimir expects
+ * `{ channel: "heartbeat", type: "heartbeat:ping" }`.
+ */
+const DRAUPNIR_TYPE_MAP: Record<string, { channel: Channel; type: MessageType }> = {
+  heartbeat: { channel: CHANNEL.HEARTBEAT, type: MESSAGE_TYPE.HEARTBEAT_PING },
+  metrics: { channel: CHANNEL.METRICS, type: MESSAGE_TYPE.METRICS_UPDATE },
+  "terminal:output": { channel: CHANNEL.TERMINAL, type: MESSAGE_TYPE.TERMINAL_DATA },
+  "terminal:closed": { channel: CHANNEL.TERMINAL, type: MESSAGE_TYPE.TERMINAL_CLOSE },
+  "command:result": { channel: CHANNEL.COMMANDS, type: MESSAGE_TYPE.COMMAND_RESULT },
+  event: { channel: CHANNEL.EVENTS, type: MESSAGE_TYPE.EVENT_INSTANCE },
+  registration: { channel: CHANNEL.EVENTS, type: MESSAGE_TYPE.EVENT_INSTANCE },
+  "llm_usage:batch": { channel: CHANNEL.LLM_USAGE, type: MESSAGE_TYPE.LLM_USAGE_BATCH },
+};
+
 export function parseEnvelope(raw: string): Envelope | null {
   try {
-    const parsed = JSON.parse(raw) as Partial<Envelope>;
+    const parsed = JSON.parse(raw);
+
+    // ── Mimir-native format ──────────────────────────────────────────────
     if (
-      typeof parsed.protocolVersion !== "string" ||
-      typeof parsed.channel !== "string" ||
-      typeof parsed.type !== "string" ||
-      typeof parsed.ts !== "number" ||
-      parsed.data === undefined
+      typeof parsed.protocolVersion === "string" &&
+      typeof parsed.channel === "string" &&
+      typeof parsed.type === "string" &&
+      typeof parsed.ts === "number" &&
+      parsed.data !== undefined
     ) {
-      return null;
+      return parsed as Envelope;
     }
-    return parsed as Envelope;
+
+    // ── Draupnir agent format ────────────────────────────────────────────
+    // Draupnir sends: { protocol_version, type, session_id?, payload }
+    if (
+      typeof parsed.protocol_version === "string" &&
+      typeof parsed.type === "string" &&
+      parsed.payload !== undefined
+    ) {
+      const mapping = DRAUPNIR_TYPE_MAP[parsed.type as string];
+      if (!mapping) return null;
+
+      return {
+        protocolVersion: parsed.protocol_version as string,
+        channel: mapping.channel,
+        type: mapping.type,
+        ts: Date.now(),
+        data: parsed.payload,
+        ...(parsed.session_id ? { correlationId: parsed.session_id as string } : {}),
+      } as Envelope;
+    }
+
+    return null;
   } catch {
     return null;
   }

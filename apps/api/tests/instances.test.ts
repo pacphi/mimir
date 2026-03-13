@@ -96,6 +96,8 @@ vi.mock("../src/lib/db.js", () => {
     },
     instance: {
       upsert: vi.fn(() => Promise.resolve(mockInstance)),
+      create: vi.fn(() => Promise.resolve(mockInstance)),
+      findFirst: vi.fn(() => Promise.resolve(null)),
       findMany: vi.fn(() => Promise.resolve([mockInstance])),
       count: vi.fn(() => Promise.resolve(1)),
       findUnique: vi.fn(({ where }: { where: { id: string } }) => {

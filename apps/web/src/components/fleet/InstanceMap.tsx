@@ -13,8 +13,9 @@ interface InstanceMapProps {
 export function InstanceMap({ pins, loading }: InstanceMapProps) {
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0">
         <CardTitle className="text-sm font-medium">Instance Locations</CardTitle>
+        <MapLegend />
       </CardHeader>
       <CardContent>
         {loading ? (
@@ -28,7 +29,7 @@ export function InstanceMap({ pins, loading }: InstanceMapProps) {
               maxZoom={14}
               scrollWheelZoom={true}
               zoomControl={true}
-              attributionControl={true}
+              attributionControl={false}
               className="h-full w-full rounded-md"
               style={{ background: "#0c1021" }}
             >
@@ -39,7 +40,14 @@ export function InstanceMap({ pins, loading }: InstanceMapProps) {
               <MapPins pins={pins} />
             </MapContainer>
 
-            <MapLegend />
+            <div className="absolute bottom-1 right-1 z-[1000] pointer-events-none">
+              <span
+                title="Map tiles © CARTO"
+                className="pointer-events-auto cursor-help inline-flex items-center justify-center w-4 h-4 rounded-full bg-background/60 text-[9px] text-muted-foreground hover:bg-background/90 transition-colors"
+              >
+                i
+              </span>
+            </div>
 
             {pins.length === 0 && (
               <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground pointer-events-none z-[1000]">

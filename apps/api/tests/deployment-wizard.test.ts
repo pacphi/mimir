@@ -140,6 +140,7 @@ vi.mock("../src/lib/db.js", () => {
           updated_at: new Date(),
         }),
       ),
+      findFirst: vi.fn(() => Promise.resolve(null)),
       findMany: vi.fn(() => Promise.resolve([])),
       count: vi.fn(() => Promise.resolve(0)),
       findUnique: vi.fn(() => Promise.resolve(null)),

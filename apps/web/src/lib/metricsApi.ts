@@ -7,7 +7,7 @@ import type {
 
 export interface ExtensionStatusEntry {
   name: string;
-  status: "healthy" | "degraded" | "error" | "unknown";
+  status: "healthy" | "degraded" | "installing" | "error" | "unknown";
   lastChecked: string;
 }
 

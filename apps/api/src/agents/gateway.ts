@@ -154,16 +154,29 @@ async function processHeartbeat(
 async function routeAgentMessage(conn: AgentConnection, raw: string): Promise<void> {
   const envelope = parseEnvelope(raw);
   if (!envelope) {
-    logger.warn({ instanceId: conn.instanceId }, "Received invalid envelope from agent");
+    logger.warn(
+      { instanceId: conn.instanceId, rawPreview: raw.slice(0, 200) },
+      "Received invalid envelope from agent",
+    );
     return;
   }
 
   const { channel, type, data } = envelope;
+  logger.debug({ instanceId: conn.instanceId, channel, type }, "Routing agent message");
 
   switch (channel) {
     case CHANNEL.HEARTBEAT:
       if (type === MESSAGE_TYPE.HEARTBEAT_PING) {
-        await processHeartbeat(conn.instanceId, data as Record<string, number>);
+        // Normalize Draupnir's heartbeat payload (uptime_seconds → uptime)
+        const hbData = data as Record<string, unknown>;
+        const normalizedHb: Record<string, number> = {};
+        if (hbData.uptime_seconds != null) normalizedHb.uptime = Number(hbData.uptime_seconds);
+        if (hbData.uptime != null) normalizedHb.uptime = Number(hbData.uptime);
+        // Pass through any Mimir-native fields
+        for (const key of ["cpuPercent", "memoryUsed", "memoryTotal", "diskUsed", "diskTotal"]) {
+          if (hbData[key] != null) normalizedHb[key] = Number(hbData[key]);
+        }
+        await processHeartbeat(conn.instanceId, normalizedHb);
         // Publish to Redis for browser fan-out
         const hbChannel = REDIS_CHANNELS.instanceHeartbeat(conn.instanceId);
         await redis.publish(
@@ -192,28 +205,82 @@ async function routeAgentMessage(conn: AgentConnection, raw: string): Promise<vo
 
     case CHANNEL.METRICS: {
       // Persist metric to write buffer (flushed every 60s by aggregation worker)
-      const metricsData = data as {
-        cpuPercent?: number;
-        loadAvg1?: number;
-        loadAvg5?: number;
-        loadAvg15?: number;
-        cpuSteal?: number;
-        coreCount?: number;
-        memUsed?: number;
-        memTotal?: number;
-        memCached?: number;
-        swapUsed?: number;
-        swapTotal?: number;
-        diskUsed?: number;
-        diskTotal?: number;
-        diskReadBps?: number;
-        diskWriteBps?: number;
-        netBytesSent?: number;
-        netBytesRecv?: number;
-        netPacketsSent?: number;
-        netPacketsRecv?: number;
-        ts?: number;
+      // Normalize Draupnir's nested metrics format to Mimir's flat format
+      const rawMetrics = data as Record<string, unknown>;
+      const cpu = (rawMetrics.cpu ?? {}) as Record<string, unknown>;
+      const mem = (rawMetrics.memory ?? {}) as Record<string, unknown>;
+      const disk = rawMetrics.disk as Array<Record<string, unknown>> | undefined;
+      const net = (rawMetrics.network ?? {}) as Record<string, unknown>;
+
+      // Aggregate disk metrics across all mount points
+      let diskUsedTotal = 0;
+      let diskTotalTotal = 0;
+      if (Array.isArray(disk)) {
+        for (const d of disk) {
+          diskUsedTotal += Number(d.used_bytes ?? 0);
+          diskTotalTotal += Number(d.total_bytes ?? 0);
+        }
+      }
+
+      const metricsData = {
+        // Mimir-native flat fields (pass through if present)
+        cpuPercent: rawMetrics.cpuPercent as number | undefined,
+        loadAvg1: rawMetrics.loadAvg1 as number | undefined,
+        loadAvg5: rawMetrics.loadAvg5 as number | undefined,
+        loadAvg15: rawMetrics.loadAvg15 as number | undefined,
+        cpuSteal: rawMetrics.cpuSteal as number | undefined,
+        coreCount: rawMetrics.coreCount as number | undefined,
+        memUsed: rawMetrics.memUsed as number | undefined,
+        memTotal: rawMetrics.memTotal as number | undefined,
+        memCached: rawMetrics.memCached as number | undefined,
+        swapUsed: rawMetrics.swapUsed as number | undefined,
+        swapTotal: rawMetrics.swapTotal as number | undefined,
+        diskUsed: rawMetrics.diskUsed as number | undefined,
+        diskTotal: rawMetrics.diskTotal as number | undefined,
+        diskReadBps: rawMetrics.diskReadBps as number | undefined,
+        diskWriteBps: rawMetrics.diskWriteBps as number | undefined,
+        netBytesSent: rawMetrics.netBytesSent as number | undefined,
+        netBytesRecv: rawMetrics.netBytesRecv as number | undefined,
+        netPacketsSent: rawMetrics.netPacketsSent as number | undefined,
+        netPacketsRecv: rawMetrics.netPacketsRecv as number | undefined,
+        ts: rawMetrics.ts as number | undefined,
       };
+
+      // Overlay Draupnir nested fields when Mimir-native fields are absent
+      if (metricsData.cpuPercent == null && cpu.usage_percent != null)
+        metricsData.cpuPercent = Number(cpu.usage_percent);
+      if (metricsData.loadAvg1 == null && cpu.load_avg_1 != null)
+        metricsData.loadAvg1 = Number(cpu.load_avg_1);
+      if (metricsData.loadAvg5 == null && cpu.load_avg_5 != null)
+        metricsData.loadAvg5 = Number(cpu.load_avg_5);
+      if (metricsData.loadAvg15 == null && cpu.load_avg_15 != null)
+        metricsData.loadAvg15 = Number(cpu.load_avg_15);
+      if (metricsData.coreCount == null && cpu.core_count != null)
+        metricsData.coreCount = Number(cpu.core_count);
+      if (metricsData.memUsed == null && mem.used_bytes != null)
+        metricsData.memUsed = Number(mem.used_bytes);
+      if (metricsData.memTotal == null && mem.total_bytes != null)
+        metricsData.memTotal = Number(mem.total_bytes);
+      if (metricsData.memCached == null && mem.cached_bytes != null)
+        metricsData.memCached = Number(mem.cached_bytes);
+      if (metricsData.swapUsed == null && mem.swap_used_bytes != null)
+        metricsData.swapUsed = Number(mem.swap_used_bytes);
+      if (metricsData.swapTotal == null && mem.swap_total_bytes != null)
+        metricsData.swapTotal = Number(mem.swap_total_bytes);
+      if (metricsData.diskUsed == null && diskUsedTotal > 0) metricsData.diskUsed = diskUsedTotal;
+      if (metricsData.diskTotal == null && diskTotalTotal > 0)
+        metricsData.diskTotal = diskTotalTotal;
+      if (metricsData.netBytesSent == null && net.bytes_sent != null)
+        metricsData.netBytesSent = Number(net.bytes_sent);
+      if (metricsData.netBytesRecv == null && net.bytes_recv != null)
+        metricsData.netBytesRecv = Number(net.bytes_recv);
+      if (metricsData.netPacketsSent == null && net.packets_sent != null)
+        metricsData.netPacketsSent = Number(net.packets_sent);
+      if (metricsData.netPacketsRecv == null && net.packets_recv != null)
+        metricsData.netPacketsRecv = Number(net.packets_recv);
+      // Use Draupnir's timestamp if present
+      if (metricsData.ts == null && rawMetrics.timestamp != null)
+        metricsData.ts = new Date(rawMetrics.timestamp as string).getTime();
 
       enqueueMetric({
         instanceId: conn.instanceId,
@@ -736,7 +803,8 @@ export function attachWebSocketGateway(server: Server): WebSocketServer {
             JSON.stringify({
               type: "error",
               deployment_id: deploymentId,
-              message: "Deployment failed. Check your configuration and try again.",
+              message:
+                deployment.error ?? "Deployment failed. Check your configuration and try again.",
               status: "FAILED",
             }),
           );
@@ -865,6 +933,8 @@ export function attachWebSocketGateway(server: Server): WebSocketServer {
         "-it",
         "-u",
         "developer",
+        "-e",
+        "HOME=/alt/home/developer",
         "-w",
         "/alt/home/developer",
         containerName,

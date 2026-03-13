@@ -1,6 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { Route } from "@/routes/instances_.$id";
-import { useInstance } from "@/hooks/useInstances";
+import { useInstance, useInstanceConfig } from "@/hooks/useInstances";
+import { useInstanceExtensions } from "@/hooks/useMetrics";
 import { StatusBadge } from "./StatusBadge";
 import { MetricsGauge } from "./MetricsGauge";
 import { LifecycleActions } from "./lifecycle";
@@ -8,13 +9,26 @@ import { InstanceDashboard } from "@/components/dashboard/instance";
 import { LogAggregator } from "@/components/logs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Server, Clock, MapPin, Cpu } from "lucide-react";
+import {
+  ArrowLeft,
+  Server,
+  Clock,
+  MapPin,
+  Cpu,
+  FileCode,
+  ChevronDown,
+  ChevronRight,
+} from "lucide-react";
+import { useState } from "react";
 import { formatUptime, formatRelativeTime } from "@/lib/utils";
 
 export function InstanceDetailPage() {
   const { id } = Route.useParams();
   const navigate = useNavigate();
   const { data: instance, isLoading, isError } = useInstance(id);
+  const { data: config } = useInstanceConfig(id);
+  const { data: extData } = useInstanceExtensions(id);
+  const [configExpanded, setConfigExpanded] = useState(false);
 
   if (isLoading) {
     return (
@@ -99,7 +113,19 @@ export function InstanceDetailPage() {
             <CardTitle className="text-sm font-medium">Extensions</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-lg font-semibold">{instance.extensions.length}</div>
+            {(() => {
+              const exts = extData?.extensions ?? [];
+              const total = exts.length > 0 ? exts.length : instance.extensions.length;
+              const healthyCount = exts.filter((e) => e.status === "healthy").length;
+              const allHealthy = exts.length > 0 && healthyCount === exts.length;
+              return (
+                <div
+                  className={`text-lg font-semibold ${allHealthy ? "text-emerald-500" : total > 0 ? "text-red-500" : ""}`}
+                >
+                  {total}
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
       </div>
@@ -146,23 +172,30 @@ export function InstanceDetailPage() {
         </CardContent>
       </Card>
 
-      {instance.extensions.length > 0 && (
+      {config && (
         <Card>
-          <CardHeader>
-            <CardTitle>Extensions ({instance.extensions.length})</CardTitle>
+          <CardHeader
+            className="cursor-pointer select-none flex flex-row items-center gap-2"
+            onClick={() => setConfigExpanded((v) => !v)}
+          >
+            <FileCode className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium flex-1">Deployment Config</CardTitle>
+            <span className="text-xs text-muted-foreground mr-2">
+              {formatRelativeTime(config.updatedAt)}
+            </span>
+            {configExpanded ? (
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+            )}
           </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-2">
-              {instance.extensions.map((ext) => (
-                <span
-                  key={ext}
-                  className="px-2 py-1 rounded-md bg-secondary text-secondary-foreground text-xs font-mono"
-                >
-                  {ext}
-                </span>
-              ))}
-            </div>
-          </CardContent>
+          {configExpanded && (
+            <CardContent>
+              <pre className="text-xs font-mono bg-muted rounded-md p-4 overflow-x-auto whitespace-pre max-h-96 overflow-y-auto">
+                {config.config}
+              </pre>
+            </CardContent>
+          )}
         </Card>
       )}
 

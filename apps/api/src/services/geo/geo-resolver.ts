@@ -32,6 +32,47 @@ export interface GeoResolverInput {
   remoteIp?: string | null;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Docker host public IP detection
+// ─────────────────────────────────────────────────────────────────────────────
+
+let cachedPublicIp: string | null | undefined;
+
+/**
+ * Detect the public IP of the machine running the API server.
+ * Useful for Docker deployments where the agent connects from a private network
+ * and we need the host's real IP for geolocation.
+ * Result is cached for the lifetime of the process.
+ */
+async function detectPublicIp(): Promise<string | null> {
+  if (cachedPublicIp !== undefined) return cachedPublicIp;
+
+  const services = ["https://api.ipify.org", "https://ifconfig.me/ip", "https://icanhazip.com"];
+
+  for (const url of services) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeout);
+      if (res.ok) {
+        const ip = (await res.text()).trim();
+        if (ip && /^[\d.:a-fA-F]+$/.test(ip)) {
+          cachedPublicIp = ip;
+          logger.info({ ip, source: url }, "Detected Docker host public IP");
+          return ip;
+        }
+      }
+    } catch {
+      // Try next service
+    }
+  }
+
+  logger.warn("Could not detect Docker host public IP from any service");
+  cachedPublicIp = null;
+  return null;
+}
+
 /**
  * Resolve geographic coordinates for an instance using a multi-fallback chain.
  */
@@ -72,22 +113,27 @@ export async function resolveInstanceGeo(input: GeoResolverInput): Promise<GeoRe
   }
 
   // 4. IP geolocation (for docker/kubernetes instances without region data)
-  if (input.remoteIp && ["docker", "kubernetes"].includes(input.provider.toLowerCase())) {
-    try {
-      const ipGeo = await geolocateIp(input.remoteIp);
-      if (ipGeo) {
-        const label =
-          [ipGeo.city, ipGeo.country].filter(Boolean).join(", ") ||
-          `${ipGeo.lat.toFixed(2)}, ${ipGeo.lon.toFixed(2)}`;
-        return {
-          lat: ipGeo.lat,
-          lon: ipGeo.lon,
-          label,
-          source: "ip_geolocation",
-        };
+  if (["docker", "kubernetes"].includes(input.provider.toLowerCase())) {
+    // Try the agent's remote IP first, then attempt to detect the host's public IP
+    const ipsToTry = [input.remoteIp, await detectPublicIp()].filter(Boolean) as string[];
+
+    for (const ip of ipsToTry) {
+      try {
+        const ipGeo = await geolocateIp(ip);
+        if (ipGeo) {
+          const label =
+            [ipGeo.city, ipGeo.country].filter(Boolean).join(", ") ||
+            `${ipGeo.lat.toFixed(2)}, ${ipGeo.lon.toFixed(2)}`;
+          return {
+            lat: ipGeo.lat,
+            lon: ipGeo.lon,
+            label,
+            source: "ip_geolocation",
+          };
+        }
+      } catch (err) {
+        logger.warn({ err, ip }, "IP geolocation failed");
       }
-    } catch (err) {
-      logger.warn({ err, ip: input.remoteIp }, "IP geolocation failed");
     }
   }
 

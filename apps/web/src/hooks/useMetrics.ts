@@ -65,6 +65,30 @@ export function useProcessList(instanceId: string) {
   });
 }
 
+export function useLogSources(instanceId: string | undefined) {
+  return useQuery({
+    queryKey: ["log-sources", instanceId],
+    queryFn: () => metricsApi.logSources(instanceId!),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    enabled: Boolean(instanceId),
+  });
+}
+
+export function useLogFile(
+  instanceId: string | undefined,
+  path: string | undefined,
+  lines?: number,
+  offset?: number,
+) {
+  return useQuery({
+    queryKey: ["log-file", instanceId, path, lines, offset],
+    queryFn: () => metricsApi.logFile(instanceId!, path!, lines, offset),
+    staleTime: 10_000,
+    enabled: Boolean(instanceId) && Boolean(path),
+  });
+}
+
 /**
  * Connects to the metrics WebSocket stream and appends real-time data points
  * to a local ring buffer. Returns the latest N data points per metric.

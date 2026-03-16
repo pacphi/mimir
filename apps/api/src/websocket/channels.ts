@@ -42,6 +42,8 @@ export const MESSAGE_TYPE = {
   // Logs channel
   LOG_LINE: "log:line",
   LOG_BATCH: "log:batch",
+  LOG_SUBSCRIBE: "log:subscribe",
+  LOG_UNSUBSCRIBE: "log:unsubscribe",
 
   // Terminal channel
   TERMINAL_CREATE: "terminal:create",
@@ -292,6 +294,8 @@ const DRAUPNIR_TYPE_MAP: Record<string, { channel: Channel; type: MessageType }>
   event: { channel: CHANNEL.EVENTS, type: MESSAGE_TYPE.EVENT_INSTANCE },
   registration: { channel: CHANNEL.EVENTS, type: MESSAGE_TYPE.EVENT_INSTANCE },
   "llm_usage:batch": { channel: CHANNEL.LLM_USAGE, type: MESSAGE_TYPE.LLM_USAGE_BATCH },
+  "log:line": { channel: CHANNEL.LOGS, type: MESSAGE_TYPE.LOG_LINE },
+  "log:batch": { channel: CHANNEL.LOGS, type: MESSAGE_TYPE.LOG_BATCH },
 };
 
 export function parseEnvelope(raw: string): Envelope | null {

@@ -11,6 +11,32 @@ export interface RegionCoord {
   label: string;
 }
 
+/**
+ * Returns the operator-configurable default coordinates.
+ * Falls back to 0,0 (Null Island) so that missing geo is visible on the map
+ * rather than silently pinning to an arbitrary city.
+ */
+function getDefaultGeo(): RegionCoord {
+  const lat = parseFloat(process.env.DEFAULT_GEO_LAT ?? "");
+  const lon = parseFloat(process.env.DEFAULT_GEO_LON ?? "");
+  const label = process.env.DEFAULT_GEO_LABEL ?? "Unknown";
+  if (!Number.isNaN(lat) && !Number.isNaN(lon)) {
+    return { lat, lon, label };
+  }
+  return { lat: 0, lon: 0, label: "Unknown" };
+}
+
+function makeGenericFallbacks(): Record<string, RegionCoord> {
+  const geo = getDefaultGeo();
+  return {
+    local: { ...geo, label: geo.label === "Unknown" ? "Local" : geo.label },
+    default: { ...geo, label: geo.label === "Unknown" ? "Default" : geo.label },
+    production: { ...geo, label: geo.label === "Unknown" ? "Production" : geo.label },
+    staging: { ...geo, label: geo.label === "Unknown" ? "Staging" : geo.label },
+    ssh: { lat: 48.86, lon: 2.35, label: "SSH Remote" },
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Provider-specific region aliases
 // Some providers use short codes that differ from the canonical region name.
@@ -178,11 +204,8 @@ const REGION_COORDS: Record<string, RegionCoord> = {
   // These are just explicit aliases for documentation.
 
   // ── Generic fallbacks ───────────────────────────────────────────────────
-  local: { lat: 37.77, lon: -122.42, label: "Local" },
-  default: { lat: 40.71, lon: -74.01, label: "Default" },
-  production: { lat: 40.71, lon: -74.01, label: "Production" },
-  staging: { lat: 37.77, lon: -122.42, label: "Staging" },
-  ssh: { lat: 48.86, lon: 2.35, label: "SSH Remote" },
+  // These use configurable defaults via DEFAULT_GEO_* env vars (see .env.example).
+  ...makeGenericFallbacks(),
 };
 
 /**

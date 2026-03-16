@@ -8,16 +8,20 @@
  * GET /api/v1/instances/:id/processes     — top processes for an instance (latest heartbeat data)
  * GET /api/v1/instances/:id/extensions    — extension status for an instance
  * GET /api/v1/instances/:id/events        — recent events timeline for an instance
+ * GET /api/v1/instances/:id/logs/sources — discover log files inside the container
+ * GET /api/v1/instances/:id/logs/file    — retrieve contents of a specific log file
  */
 
 import { Hono } from "hono";
 import { z } from "zod";
+import { v4 as uuidv4 } from "uuid";
 import { authMiddleware } from "../middleware/auth.js";
 import { rateLimitDefault } from "../middleware/rateLimit.js";
 import { db } from "../lib/db.js";
 import { logger } from "../lib/logger.js";
 import { queryTimeSeries, queryAggregate, queryLatest } from "../services/metrics/index.js";
 import type { Granularity } from "../services/metrics/index.js";
+import { dispatchCommand } from "./commands.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Schemas
@@ -550,6 +554,180 @@ instanceMetrics.get("/:id/events", rateLimitDefault, async (c) => {
   } catch (err) {
     logger.error({ err, instanceId: id }, "Failed to fetch events");
     return c.json({ error: "Internal Server Error", message: "Failed to fetch events" }, 500);
+  }
+});
+
+// ─── GET /api/v1/instances/:id/logs/sources ──────────────────────────────────
+// Discover log files inside the container's ~/.sindri/logs/ directory.
+
+const LogFileQuerySchema = z.object({
+  path: z.string().min(1).max(512),
+  lines: z.coerce.number().int().min(1).max(5000).default(500),
+  offset: z.coerce.number().int().min(0).default(1),
+});
+
+instanceMetrics.get("/:id/logs/sources", rateLimitDefault, async (c) => {
+  const id = c.req.param("id")!;
+  if (!id || id.length > 128) {
+    return c.json({ error: "Bad Request", message: "Invalid instance ID" }, 400);
+  }
+
+  try {
+    const instance = await db.instance.findUnique({ where: { id }, select: { id: true } });
+    if (!instance) {
+      return c.json({ error: "Not Found", message: `Instance '${id}' not found` }, 404);
+    }
+
+    const correlationId = uuidv4();
+    const findCmd = `find ~/.sindri/logs -name "*.log" -type f 2>/dev/null | while read f; do stat --format='%n|%s|%Y' "$f" 2>/dev/null || stat -f '%N|%z|%m' "$f" 2>/dev/null; done`;
+
+    let result;
+    try {
+      result = await dispatchCommand(id, findCmd, {
+        timeoutMs: 15_000,
+        correlationId,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      if (message.includes("not connected")) {
+        return c.json(
+          { error: "Service Unavailable", message: "Agent is offline for this instance" },
+          503,
+        );
+      }
+      logger.error({ err, instanceId: id }, "Failed to discover log sources");
+      return c.json(
+        { error: "Internal Server Error", message: "Failed to discover log files" },
+        500,
+      );
+    }
+
+    const stdout = result.stdout ?? "";
+    const lines = stdout.split("\n").filter((l) => l.trim().length > 0);
+
+    const basePath = "/.sindri/logs/";
+    const sources = lines
+      .map((line) => {
+        const parts = line.split("|");
+        if (parts.length < 3) return null;
+        const fullPath = parts[0];
+        const sizeBytes = parseInt(parts[1], 10);
+        const mtime = parseInt(parts[2], 10);
+        if (isNaN(sizeBytes) || isNaN(mtime)) return null;
+
+        // Extract relative path from ~/.sindri/logs/
+        const idx = fullPath.indexOf(basePath);
+        const relativePath = idx >= 0 ? fullPath.substring(idx + basePath.length) : fullPath;
+        const name = relativePath.split("/").pop() ?? relativePath;
+
+        return {
+          path: relativePath,
+          name,
+          sizeBytes,
+          lastModified: new Date(mtime * 1000).toISOString(),
+        };
+      })
+      .filter((s) => s !== null);
+
+    return c.json({ sources });
+  } catch (err) {
+    logger.error({ err, instanceId: id }, "Failed to discover log sources");
+    return c.json({ error: "Internal Server Error", message: "Failed to discover log files" }, 500);
+  }
+});
+
+// ─── GET /api/v1/instances/:id/logs/file ─────────────────────────────────────
+// Retrieve contents of a specific log file from the container.
+
+instanceMetrics.get("/:id/logs/file", rateLimitDefault, async (c) => {
+  const id = c.req.param("id")!;
+  if (!id || id.length > 128) {
+    return c.json({ error: "Bad Request", message: "Invalid instance ID" }, 400);
+  }
+
+  const queryResult = LogFileQuerySchema.safeParse(
+    Object.fromEntries(new URL(c.req.url).searchParams),
+  );
+  if (!queryResult.success) {
+    return c.json(
+      {
+        error: "Validation Error",
+        message: "Invalid query parameters",
+        details: queryResult.error.flatten(),
+      },
+      422,
+    );
+  }
+
+  const { path: filePath, lines: lineCount, offset } = queryResult.data;
+
+  // Security: prevent path traversal
+  if (filePath.includes("..") || filePath.startsWith("/")) {
+    return c.json(
+      { error: "Bad Request", message: "Invalid path: must be relative and cannot contain '..'" },
+      400,
+    );
+  }
+
+  try {
+    const instance = await db.instance.findUnique({ where: { id }, select: { id: true } });
+    if (!instance) {
+      return c.json({ error: "Not Found", message: `Instance '${id}' not found` }, 404);
+    }
+
+    const sanitizedPath = filePath.replace(/[`$\\]/g, "");
+    const correlationId = uuidv4();
+    const tailOffset = Math.max(offset, 1);
+    const readCmd = `wc -l ~/.sindri/logs/${sanitizedPath} | awk '{print $1}' && tail -n +${tailOffset} ~/.sindri/logs/${sanitizedPath} | head -n ${lineCount}`;
+
+    let result;
+    try {
+      result = await dispatchCommand(id, readCmd, {
+        timeoutMs: 15_000,
+        correlationId,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      if (message.includes("not connected")) {
+        return c.json(
+          { error: "Service Unavailable", message: "Agent is offline for this instance" },
+          503,
+        );
+      }
+      logger.error({ err, instanceId: id }, "Failed to read log file");
+      return c.json({ error: "Internal Server Error", message: "Failed to read log file" }, 500);
+    }
+
+    // Check for file not found in stderr
+    if (result.exitCode !== 0 && result.stderr?.includes("No such file")) {
+      return c.json({ error: "Not Found", message: `Log file '${filePath}' not found` }, 404);
+    }
+
+    const stdout = result.stdout ?? "";
+
+    // Cap response at 1MB
+    const MAX_RESPONSE_BYTES = 1_048_576;
+    const truncated =
+      stdout.length > MAX_RESPONSE_BYTES ? stdout.substring(0, MAX_RESPONSE_BYTES) : stdout;
+
+    const outputLines = truncated.split("\n");
+    const totalLineStr = outputLines.shift() ?? "0";
+    const totalLines = parseInt(totalLineStr.trim(), 10) || 0;
+
+    // Remove trailing empty line from split
+    if (outputLines.length > 0 && outputLines[outputLines.length - 1] === "") {
+      outputLines.pop();
+    }
+
+    return c.json({
+      lines: outputLines,
+      totalLines,
+      path: filePath,
+      offset,
+    });
+  } catch (err) {
+    logger.error({ err, instanceId: id }, "Failed to read log file");
+    return c.json({ error: "Internal Server Error", message: "Failed to read log file" }, 500);
   }
 });
 

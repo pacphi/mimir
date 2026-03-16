@@ -159,4 +159,23 @@ export const metricsApi = {
   events(instanceId: string, limit = 50): Promise<EventsApiResponse> {
     return apiFetch<EventsApiResponse>(`/instances/${instanceId}/events?limit=${limit}`);
   },
+
+  logSources(instanceId: string): Promise<{
+    sources: Array<{ path: string; name: string; sizeBytes: number; lastModified: string }>;
+  }> {
+    return apiFetch(`/instances/${instanceId}/logs/sources`);
+  },
+
+  logFile(
+    instanceId: string,
+    path: string,
+    lines?: number,
+    offset?: number,
+  ): Promise<{ lines: string[]; totalLines: number; path: string; offset: number }> {
+    const params = new URLSearchParams();
+    params.set("path", path);
+    if (lines !== undefined) params.set("lines", String(lines));
+    if (offset !== undefined) params.set("offset", String(offset));
+    return apiFetch(`/instances/${instanceId}/logs/file?${params.toString()}`);
+  },
 };

@@ -20,7 +20,6 @@ import { rateLimitDefault, rateLimitStrict } from "../middleware/rateLimit.js";
 import { db } from "../lib/db.js";
 import { redis } from "../lib/redis.js";
 import { logger } from "../lib/logger.js";
-import { makeEnvelope, CHANNEL, MESSAGE_TYPE } from "../websocket/channels.js";
 import { agentConnections } from "../agents/gateway.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -90,19 +89,6 @@ async function dispatchCommand(
     throw new Error(`Agent for instance '${instanceId}' is not connected`);
   }
 
-  const envelope = makeEnvelope(
-    CHANNEL.COMMANDS,
-    MESSAGE_TYPE.COMMAND_EXEC,
-    {
-      command,
-      args: opts.args,
-      env: opts.env,
-      workingDir: opts.workingDir,
-      timeout: opts.timeoutMs,
-    },
-    { instanceId, correlationId: opts.correlationId },
-  );
-
   // Subscribe to the result channel before sending so we don't miss the reply
   const resultKey = `sindri:cmd:result:${opts.correlationId}`;
 
@@ -126,15 +112,36 @@ async function dispatchCommand(
       try {
         const raw = await redis.get(resultKey);
         if (raw) {
-          settle(() => resolve(JSON.parse(raw) as CommandResult));
+          const parsed = JSON.parse(raw) as Record<string, unknown>;
+          // Normalize Draupnir's snake_case to camelCase
+          settle(() =>
+            resolve({
+              exitCode: (parsed.exit_code as number) ?? (parsed.exitCode as number) ?? 0,
+              stdout: (parsed.stdout as string) ?? "",
+              stderr: (parsed.stderr as string) ?? "",
+              durationMs: (parsed.duration_ms as number) ?? (parsed.durationMs as number) ?? 0,
+            }),
+          );
         }
       } catch {
         // continue polling
       }
     }, 200);
 
-    // Send the command to the agent
-    agentWs.ws.send(JSON.stringify(envelope));
+    // Send command in Draupnir's envelope format so the agent can parse it.
+    // Draupnir expects: { protocol_version, type: "command:dispatch", payload: { command_id, command, ... } }
+    const draupnirEnvelope = {
+      protocol_version: "1.0",
+      type: "command:dispatch",
+      payload: {
+        command_id: opts.correlationId,
+        command,
+        args: opts.args,
+        env: opts.env ? Object.entries(opts.env).map(([k, v]) => `${k}=${v}`) : undefined,
+        timeout_ms: opts.timeoutMs,
+      },
+    };
+    agentWs.ws.send(JSON.stringify(draupnirEnvelope));
   });
 }
 
@@ -471,4 +478,4 @@ function serializeExecution(e: {
   };
 }
 
-export { commands as commandsRouter };
+export { commands as commandsRouter, dispatchCommand };

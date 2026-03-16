@@ -13,7 +13,7 @@
     "db:migrate": "set -a && . ../../.env && set +a && prisma migrate dev",
     "db:migrate:deploy": "set -a && . ../../.env && set +a && prisma migrate deploy",
     "db:push": "set -a && . ../../.env && set +a && prisma db push",
-    "db:reset": "set -a && . ../../.env && set +a && prisma migrate reset --force",
+    "db:reset": "set -a && . ../../.env && set +a && bash scripts/db-reset.sh",
     "db:seed": "set -a && . ../../.env && set +a && prisma db seed",
     "db:studio": "set -a && . ../../.env && set +a && prisma studio",
     "test": "vitest run",

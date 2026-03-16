@@ -1,9 +1,9 @@
 /**
- * Renders clusters and individual pins using supercluster within the Leaflet map.
+ * Renders clusters and individual pins using supercluster within the MapLibre map.
  */
 
-import { useMap, useMapEvents } from "react-leaflet";
-import { useState, useCallback } from "react";
+import { useMap } from "react-map-gl/maplibre";
+import { useState, useCallback, useEffect } from "react";
 import type { GeoPin } from "@/types/fleet";
 import { useMapClusters } from "./useMapClusters";
 import { ClusterMarker } from "./ClusterMarker";
@@ -15,19 +15,35 @@ interface MapPinsProps {
 }
 
 export function MapPins({ pins }: MapPinsProps) {
-  const map = useMap();
-  const [bounds, setBounds] = useState<BBox | null>(getBounds(map));
-  const [zoom, setZoom] = useState(map.getZoom());
+  const { current: mapRef } = useMap();
+  const [bounds, setBounds] = useState<BBox | null>(null);
+  const [zoom, setZoom] = useState(2);
 
   const updateBoundsAndZoom = useCallback(() => {
-    setBounds(getBounds(map));
-    setZoom(map.getZoom());
-  }, [map]);
+    if (!mapRef) return;
+    const map = mapRef.getMap();
+    const b = map.getBounds();
+    setBounds([b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]);
+    setZoom(Math.floor(map.getZoom()));
+  }, [mapRef]);
 
-  useMapEvents({
-    moveend: updateBoundsAndZoom,
-    zoomend: updateBoundsAndZoom,
-  });
+  // Set initial bounds once map is loaded
+  useEffect(() => {
+    if (!mapRef) return;
+    const map = mapRef.getMap();
+
+    if (map.loaded()) {
+      updateBoundsAndZoom();
+    } else {
+      map.on("load", updateBoundsAndZoom);
+    }
+    map.on("moveend", updateBoundsAndZoom);
+
+    return () => {
+      map.off("load", updateBoundsAndZoom);
+      map.off("moveend", updateBoundsAndZoom);
+    };
+  }, [mapRef, updateBoundsAndZoom]);
 
   const { clusters, supercluster } = useMapClusters({ pins, bounds, zoom });
 
@@ -47,9 +63,9 @@ export function MapPins({ pins }: MapPinsProps) {
               pointCount={properties.point_count as number}
               totalCount={properties.point_count as number}
               onExpand={() => {
-                if (!supercluster) return;
+                if (!supercluster || !mapRef) return;
                 const expansionZoom = Math.min(supercluster.getClusterExpansionZoom(clusterId), 14);
-                map.flyTo([lat, lon], expansionZoom);
+                mapRef.flyTo({ center: [lon, lat], zoom: expansionZoom });
               }}
             />
           );
@@ -70,9 +86,4 @@ export function MapPins({ pins }: MapPinsProps) {
       })}
     </>
   );
-}
-
-function getBounds(map: L.Map): BBox {
-  const b = map.getBounds();
-  return [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
 }

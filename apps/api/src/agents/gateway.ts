@@ -49,6 +49,8 @@ interface BrowserConnection {
   apiKeyId?: string;
   // Set of instance IDs this client is subscribed to
   subscriptions: Set<string>;
+  // Map of instanceId → Set of log file paths this client is streaming
+  logSubscriptions: Map<string, Set<string>>;
   connectedAt: Date;
 }
 
@@ -352,11 +354,14 @@ async function routeAgentMessage(conn: AgentConnection, raw: string): Promise<vo
       if (type === MESSAGE_TYPE.LOG_BATCH) {
         // Batch ingestion
         const batchData = data as {
+          path?: string;
           lines?: Array<{
+            line?: string;
             level?: string;
             source?: string;
             message?: string;
             ts?: number;
+            timestamp?: number;
             metadata?: Record<string, unknown>;
             deploymentId?: string;
           }>;
@@ -371,40 +376,83 @@ async function routeAgentMessage(conn: AgentConnection, raw: string): Promise<vo
                 .toLowerCase()
                 .split(":")[0]
             ] ?? "SYSTEM") as LogSource,
-            message: String(l.message ?? ""),
+            message: String(l.message ?? l.line ?? ""),
             metadata: l.metadata,
             deploymentId: l.deploymentId,
-            timestamp: l.ts ? new Date(l.ts) : new Date(),
+            timestamp: l.ts ? new Date(l.ts) : l.timestamp ? new Date(l.timestamp) : new Date(),
           })),
         }).catch((err: unknown) =>
           logger.warn({ err, instanceId: conn.instanceId }, "Failed to ingest log batch"),
         );
+
+        // Publish to Redis for SSE subscribers
+        await redis
+          .publish(
+            REDIS_CHANNELS.instanceLogs(conn.instanceId),
+            JSON.stringify({ ...envelope, instanceId: conn.instanceId }),
+          )
+          .catch((err: unknown) => logger.warn({ err }, "Failed to publish log batch to Redis"));
+
+        // Fan out to subscribed browser WebSocket clients
+        for (const client of browserConnections) {
+          if (
+            client.subscriptions.has(conn.instanceId) &&
+            client.ws.readyState === WebSocket.OPEN
+          ) {
+            client.ws.send(JSON.stringify({ ...envelope, instanceId: conn.instanceId }));
+          }
+        }
       } else {
-        // Single log line
+        // Single log line (log:line or legacy format)
         const lineData = data as {
+          path?: string;
+          line?: string;
           level?: string;
           source?: string;
           message?: string;
           ts?: number;
+          timestamp?: number;
           metadata?: Record<string, unknown>;
           deploymentId?: string;
         };
+        const resolvedLevel = logLevelMap[String(lineData.level ?? "info").toLowerCase()] ?? "INFO";
         ingestLog({
           instanceId: conn.instanceId,
-          level: (logLevelMap[String(lineData.level ?? "info").toLowerCase()] ??
-            "INFO") as LogLevel,
+          level: resolvedLevel as LogLevel,
           source: (logSourceMap[
             String(lineData.source ?? "agent")
               .toLowerCase()
               .split(":")[0]
           ] ?? "SYSTEM") as LogSource,
-          message: String(lineData.message ?? ""),
+          message: String(lineData.message ?? lineData.line ?? ""),
           metadata: lineData.metadata,
           deploymentId: lineData.deploymentId,
-          timestamp: lineData.ts ? new Date(lineData.ts) : new Date(),
+          timestamp: lineData.ts
+            ? new Date(lineData.ts)
+            : lineData.timestamp
+              ? new Date(lineData.timestamp)
+              : new Date(),
         }).catch((err: unknown) =>
           logger.warn({ err, instanceId: conn.instanceId }, "Failed to ingest log line"),
         );
+
+        // Publish to Redis for SSE subscribers
+        await redis
+          .publish(
+            REDIS_CHANNELS.instanceLogs(conn.instanceId),
+            JSON.stringify({ ...envelope, instanceId: conn.instanceId }),
+          )
+          .catch((err: unknown) => logger.warn({ err }, "Failed to publish log line to Redis"));
+
+        // Fan out to subscribed browser WebSocket clients
+        for (const client of browserConnections) {
+          if (
+            client.subscriptions.has(conn.instanceId) &&
+            client.ws.readyState === WebSocket.OPEN
+          ) {
+            client.ws.send(JSON.stringify({ ...envelope, instanceId: conn.instanceId }));
+          }
+        }
       }
       break;
     }
@@ -460,10 +508,14 @@ async function routeAgentMessage(conn: AgentConnection, raw: string): Promise<vo
       }
       break;
 
-    case CHANNEL.COMMANDS:
-      // Store command result in Redis so the HTTP route can pick it up
-      if (type === MESSAGE_TYPE.COMMAND_RESULT && envelope.correlationId) {
-        const resultKey = `sindri:cmd:result:${envelope.correlationId}`;
+    case CHANNEL.COMMANDS: {
+      // Store command result in Redis so the HTTP route can pick it up.
+      // Draupnir sets command_id inside the payload (not session_id on the envelope),
+      // so we fall back to extracting it from the data.
+      const cmdPayload = data as Record<string, unknown>;
+      const corrId = envelope.correlationId || (cmdPayload.command_id as string | undefined);
+      if (type === MESSAGE_TYPE.COMMAND_RESULT && corrId) {
+        const resultKey = `sindri:cmd:result:${corrId}`;
         await redis
           .setex(resultKey, 120, JSON.stringify(data))
           .catch((err: unknown) => logger.warn({ err }, "Failed to store command result"));
@@ -478,6 +530,7 @@ async function routeAgentMessage(conn: AgentConnection, raw: string): Promise<vo
         }
       }
       break;
+    }
 
     case CHANNEL.LLM_USAGE: {
       // Ingest LLM usage batch from agent
@@ -532,6 +585,77 @@ async function routeBrowserMessage(conn: BrowserConnection, raw: string): Promis
       conn.subscriptions.delete((envelope.data as { instanceId: string }).instanceId);
     }
     return;
+  }
+
+  // Handle log subscription messages from browser
+  if (channel === CHANNEL.LOGS) {
+    if (type === MESSAGE_TYPE.LOG_SUBSCRIBE) {
+      const subData = envelope.data as { instanceId?: string; paths?: string[] };
+      const targetId = subData.instanceId ?? instanceId;
+      if (targetId && Array.isArray(subData.paths)) {
+        // Track log subscriptions on this browser connection
+        if (!conn.logSubscriptions.has(targetId)) {
+          conn.logSubscriptions.set(targetId, new Set());
+        }
+        const pathSet = conn.logSubscriptions.get(targetId)!;
+        for (const p of subData.paths) {
+          pathSet.add(p);
+        }
+        // Also ensure the browser is subscribed to the instance for fan-out
+        conn.subscriptions.add(targetId);
+        // Forward to the Draupnir agent so it starts tailing (use Draupnir envelope format)
+        const agentConn = agentConnections.get(targetId);
+        if (agentConn && agentConn.ws.readyState === WebSocket.OPEN) {
+          agentConn.ws.send(
+            JSON.stringify({
+              protocol_version: "1.0",
+              type: "log:subscribe",
+              payload: { paths: subData.paths },
+            }),
+          );
+        }
+        logger.debug(
+          { userId: conn.userId, instanceId: targetId, paths: subData.paths },
+          "Browser subscribed to log streams",
+        );
+      }
+      return;
+    }
+
+    if (type === MESSAGE_TYPE.LOG_UNSUBSCRIBE) {
+      const unsubData = envelope.data as { instanceId?: string; paths?: string[] };
+      const targetId = unsubData.instanceId ?? instanceId;
+      if (targetId) {
+        if (unsubData.paths && unsubData.paths.length > 0) {
+          const pathSet = conn.logSubscriptions.get(targetId);
+          if (pathSet) {
+            for (const p of unsubData.paths) {
+              pathSet.delete(p);
+            }
+            if (pathSet.size === 0) conn.logSubscriptions.delete(targetId);
+          }
+        } else {
+          // Unsubscribe from all paths for this instance
+          conn.logSubscriptions.delete(targetId);
+        }
+        // Forward to the Draupnir agent so it stops tailing (use Draupnir envelope format)
+        const agentConn = agentConnections.get(targetId);
+        if (agentConn && agentConn.ws.readyState === WebSocket.OPEN) {
+          agentConn.ws.send(
+            JSON.stringify({
+              protocol_version: "1.0",
+              type: "log:unsubscribe",
+              payload: { paths: unsubData.paths ?? [] },
+            }),
+          );
+        }
+        logger.debug(
+          { userId: conn.userId, instanceId: targetId, paths: unsubData.paths },
+          "Browser unsubscribed from log streams",
+        );
+      }
+      return;
+    }
   }
 
   // Route to agent via Redis commands channel
@@ -599,6 +723,16 @@ export function attachWebSocketGateway(server: Server): WebSocketServer {
 
       logger.info({ instanceId: principal.instanceId }, "Agent connected via WebSocket");
 
+      // Auto-subscribe to all log files so they flow into the DB for the DB Logs view.
+      // The wildcard "*" tells the agent to discover and tail all .log files.
+      ws.send(
+        JSON.stringify({
+          protocol_version: "1.0",
+          type: "log:subscribe",
+          payload: { paths: ["*"] },
+        }),
+      );
+
       ws.on("message", async (data) => {
         await routeAgentMessage(conn, data.toString());
       });
@@ -627,6 +761,7 @@ export function attachWebSocketGateway(server: Server): WebSocketServer {
         userId: principal.userId,
         apiKeyId: principal.apiKeyId,
         subscriptions: new Set(),
+        logSubscriptions: new Map(),
         connectedAt: new Date(),
       };
       browserConnections.add(conn);
@@ -638,6 +773,20 @@ export function attachWebSocketGateway(server: Server): WebSocketServer {
       });
 
       ws.on("close", () => {
+        // Clean up log subscriptions — notify agents to stop tailing (use Draupnir envelope format)
+        for (const [instId, paths] of conn.logSubscriptions) {
+          const agentConn = agentConnections.get(instId);
+          if (agentConn && agentConn.ws.readyState === WebSocket.OPEN) {
+            agentConn.ws.send(
+              JSON.stringify({
+                protocol_version: "1.0",
+                type: "log:unsubscribe",
+                payload: { paths: Array.from(paths) },
+              }),
+            );
+          }
+        }
+        conn.logSubscriptions.clear();
         browserConnections.delete(conn);
         logger.info({ userId: principal.userId }, "Browser client disconnected");
       });

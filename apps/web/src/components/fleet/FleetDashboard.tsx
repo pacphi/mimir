@@ -37,19 +37,17 @@ export function FleetDashboard() {
       {/* Status summary cards */}
       <FleetHealthSummary stats={stats} loading={statsLoading} />
 
-      {/* World map */}
-      <InstanceMap pins={geoPins} loading={geoLoading} />
+      {/* Map + sidebar cards */}
+      <div className="grid gap-4 grid-cols-1 lg:grid-cols-[3fr_1fr]">
+        {/* World map */}
+        <InstanceMap pins={geoPins} loading={geoLoading} />
 
-      {/* Charts row */}
-      <div className="grid gap-4 grid-cols-1 lg:grid-cols-3">
-        {/* Provider pie chart */}
-        <ProviderDistribution stats={stats} loading={statsLoading} />
-
-        {/* Active sessions */}
-        <ActiveSessionsCard stats={stats} loading={statsLoading} />
-
-        {/* Deployment timeline */}
-        <DeploymentTimeline data={deployments} loading={deploymentsLoading} />
+        {/* Stacked sidebar cards */}
+        <div className="flex flex-col gap-4">
+          <ProviderDistribution stats={stats} loading={statsLoading} />
+          <ActiveSessionsCard stats={stats} loading={statsLoading} />
+          <DeploymentTimeline data={deployments} loading={deploymentsLoading} />
+        </div>
       </div>
     </div>
   );

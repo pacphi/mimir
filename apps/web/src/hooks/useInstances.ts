@@ -16,6 +16,7 @@ export function useInstance(id: string) {
     queryKey: ["instances", id],
     queryFn: () => instancesApi.get(id),
     staleTime: 10_000,
+    refetchInterval: 60_000,
     enabled: Boolean(id),
   });
 }

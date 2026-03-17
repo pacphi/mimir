@@ -5,8 +5,12 @@ import {
   assembleYaml,
   type ImageConfig,
   type ImageDefaults,
+  type SindriDistro,
   type VolumeEntry,
 } from "@/lib/yaml-assembler";
+import type { AppConfig } from "@/hooks/useAppConfig";
+
+export type { SindriDistro };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -24,6 +28,7 @@ export interface DeploymentWizardState {
   provider: ProviderId | null;
 
   // Step 2 — Image & Volumes
+  distro: SindriDistro;
   imageConfig: ImageConfig;
   homeDataSizeGb: number;
   volumes: VolumeEntry[];
@@ -70,6 +75,7 @@ export interface DeploymentWizardActions {
   setProvider: (provider: ProviderId) => void;
 
   // Step 2
+  setDistro: (distro: SindriDistro) => void;
   setImageConfig: (config: Partial<ImageConfig>) => void;
   setHomeDataSizeGb: (gb: number) => void;
   setVolumes: (volumes: VolumeEntry[]) => void;
@@ -116,6 +122,9 @@ export interface DeploymentWizardActions {
   // Recompute assembled YAML (imageDefaults from app config)
   recomputeYaml: (imageDefaults: ImageDefaults) => void;
 
+  // Initialize from app config (sets default distro)
+  initFromConfig: (config: AppConfig) => void;
+
   // Reset
   reset: () => void;
 }
@@ -129,6 +138,7 @@ const INITIAL_STATE: DeploymentWizardState = {
   currentStep: 1,
   name: "",
   provider: null,
+  distro: "ubuntu",
   imageConfig: {},
   homeDataSizeGb: 20,
   volumes: [],
@@ -158,6 +168,7 @@ function computeYaml(state: DeploymentWizardState, imageDefaults: ImageDefaults)
   return assembleYaml({
     name: state.name,
     provider: state.provider,
+    distro: state.distro,
     imageConfig: state.imageConfig,
     imageDefaults,
     homeDataSizeGb: state.homeDataSizeGb,
@@ -199,6 +210,7 @@ export const useDeploymentWizardStore = create<DeploymentWizardState & Deploymen
       }),
 
     // ── Step 2 ────────────────────────────────────────────────────────────
+    setDistro: (distro) => set({ distro }),
     setImageConfig: (config) => set((s) => ({ imageConfig: { ...s.imageConfig, ...config } })),
     setHomeDataSizeGb: (homeDataSizeGb) => set({ homeDataSizeGb }),
     setVolumes: (volumes) => set({ volumes }),
@@ -252,6 +264,17 @@ export const useDeploymentWizardStore = create<DeploymentWizardState & Deploymen
     // ── YAML ──────────────────────────────────────────────────────────────
     recomputeYaml: (imageDefaults) =>
       set((s) => ({ assembledYaml: computeYaml(s, imageDefaults) })),
+
+    // ── Init from config ────────────────────────────────────────────────
+    initFromConfig: (config) =>
+      set((s) => {
+        const defaultDistro = (config.sindriDefaultDistro || "ubuntu") as SindriDistro;
+        // Only update distro if it's still the hardcoded initial value
+        if (s.distro === "ubuntu" && defaultDistro !== "ubuntu") {
+          return { distro: defaultDistro };
+        }
+        return {};
+      }),
 
     // ── Reset ─────────────────────────────────────────────────────────────
     reset: () => set(INITIAL_STATE),

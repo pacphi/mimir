@@ -9,13 +9,16 @@ export type InstanceStatus =
   | "ERROR"
   | "UNKNOWN";
 
-export type Provider = "fly" | "docker" | "devpod" | "e2b" | "kubernetes";
+export type Provider = "fly" | "docker" | "devpod" | "e2b" | "kubernetes" | "runpod" | "northflank";
+
+export type SindriDistro = "ubuntu" | "fedora" | "opensuse";
 
 export interface Instance {
   id: string;
   name: string;
   provider: Provider;
   region: string | null;
+  distro: SindriDistro | null;
   extensions: string[];
   config_hash: string | null;
   ssh_endpoint: string | null;
@@ -34,6 +37,7 @@ export interface InstanceSummary {
   name: string;
   provider: Provider;
   region: string | null;
+  distro: SindriDistro | null;
   status: InstanceStatus;
   extension_count: number;
   /** Seconds since epoch of last heartbeat, or null if never received. */
@@ -59,4 +63,5 @@ export interface InstanceFilters {
   provider?: Provider;
   status?: InstanceStatus;
   region?: string;
+  distro?: SindriDistro;
 }

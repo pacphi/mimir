@@ -4,3 +4,4 @@ export { ExtensionCard } from "./ExtensionCard";
 export { ExtensionDetail } from "./ExtensionDetail";
 export { ExtensionSearch } from "./ExtensionSearch";
 export { ExtensionAnalytics } from "./ExtensionAnalytics";
+export { CategoryMappingAdmin } from "./CategoryMappingAdmin";

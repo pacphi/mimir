@@ -6,6 +6,12 @@ import { PROVIDER_CATALOG } from "@/types/provider-options";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { apiFetch } from "@/lib/api-fetch";
 
+const DISTRO_LABELS: Record<string, string> = {
+  ubuntu: "Ubuntu 24.04",
+  fedora: "Fedora 41",
+  opensuse: "openSUSE Leap 15.6",
+};
+
 interface ReviewRowProps {
   label: string;
   value: string;
@@ -90,6 +96,10 @@ export function Step7Review({ onDeploy, isDeploying, cliAvailable = true }: Step
         <CardContent className="pt-0">
           <ReviewRow label="Name" value={store.name || "(not set)"} />
           <ReviewRow label="Provider" value={providerMeta?.name ?? store.provider ?? "(not set)"} />
+          <ReviewRow
+            label="Distribution"
+            value={DISTRO_LABELS[store.distro] ?? store.distro ?? "Ubuntu 24.04"}
+          />
           <ReviewRow label="Region" value={store.region || "(not set)"} />
           <ReviewRow label="Compute" value={store.vmSize || "(not set)"} />
           <ReviewRow label="Memory" value={store.memoryGb ? `${store.memoryGb} GB` : "(not set)"} />

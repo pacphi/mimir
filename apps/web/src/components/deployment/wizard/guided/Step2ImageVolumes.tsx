@@ -17,8 +17,16 @@ import {
 } from "@/lib/sindri-constraints";
 import { useAppConfig } from "@/hooks/useAppConfig";
 
+const DISTRO_META: Record<string, { label: string; description: string }> = {
+  ubuntu: { label: "Ubuntu 24.04", description: "Default — widest compatibility" },
+  fedora: { label: "Fedora 41", description: "Latest packages, SELinux, DNF" },
+  opensuse: { label: "openSUSE Leap 15.6", description: "Enterprise-grade, Zypper" },
+};
+
 export function Step2ImageVolumes() {
   const {
+    distro,
+    setDistro,
     imageConfig,
     setImageConfig,
     homeDataSizeGb,
@@ -30,14 +38,57 @@ export function Step2ImageVolumes() {
   } = useDeploymentWizardStore();
   const { data: appConfig } = useAppConfig();
 
+  const supportedDistros = appConfig?.sindriSupportedDistros ?? ["ubuntu", "fedora", "opensuse"];
+
   return (
     <div className="space-y-6">
+      {/* Base Distribution */}
+      <div>
+        <h3 className="text-sm font-medium mb-3">Base Distribution</h3>
+        <p className="text-xs text-muted-foreground mb-3">
+          Select the Linux distribution for the Sindri environment.
+        </p>
+        <div className="grid grid-cols-3 gap-3">
+          {supportedDistros.map((d) => {
+            const meta = DISTRO_META[d];
+            if (!meta) return null;
+            const isSelected = distro === d;
+            return (
+              <button
+                key={d}
+                type="button"
+                onClick={() => setDistro(d as import("@/lib/yaml-assembler").SindriDistro)}
+                className={`relative flex flex-col items-start gap-1 rounded-lg border-2 p-3 text-left transition-colors ${
+                  isSelected
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:border-primary/50"
+                }`}
+              >
+                <span className="text-sm font-medium">{meta.label}</span>
+                <span className="text-xs text-muted-foreground">{meta.description}</span>
+                {d === (appConfig?.sindriDefaultDistro ?? "ubuntu") && (
+                  <span className="absolute top-2 right-2 text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                    default
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Image Configuration */}
       <div>
         <h3 className="text-sm font-medium mb-3">Image Configuration</h3>
         <p className="text-xs text-muted-foreground mb-3">
-          Leave blank to use the default image ({appConfig?.sindriDefaultImage ?? "sindri:latest"}).
-          Set a registry and version to pull a specific image from a container registry.
+          Leave blank to use the default image (
+          {appConfig?.nodeEnv !== "production"
+            ? (appConfig?.sindriDefaultImage ?? "sindri:v3-ubuntu-dev").replace(
+                /-(ubuntu|fedora|opensuse)-/,
+                `-${distro}-`,
+              )
+            : `${appConfig?.sindriImageRegistry ?? "ghcr.io/pacphi/sindri"}:${distro}`}
+          ). Set a registry and version to pull a specific image from a container registry.
         </p>
 
         <div className="grid grid-cols-2 gap-4">

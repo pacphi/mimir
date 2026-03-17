@@ -10,9 +10,16 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ChevronLeft, ChevronRight, X, GripVertical } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  X,
+  GripVertical,
+  LayoutPanelLeft,
+  FolderTree,
+} from "lucide-react";
 import type { ShellCard } from "@/types/terminal";
-import { Terminal } from "@/components/terminal/Terminal";
+import { ShellSplitPane } from "@/components/editor/ShellSplitPane";
 import { ShellLabelEditor } from "./ShellLabelEditor";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +31,12 @@ interface ShellCarouselProps {
   onClose: (id: string) => void;
   onLabelChange: (id: string, label: string) => void;
   onStatusChange: (id: string, status: ShellCard["status"]) => void;
+  onEditorToggle: (id: string) => void;
+  onExplorerToggle: (id: string) => void;
+  onActiveFileChange: (id: string, path: string | null) => void;
+  onOpenFilesChange: (id: string, paths: string[]) => void;
+  onTerminalHeightChange: (id: string, pct: number) => void;
+  onExplorerWidthChange: (id: string, pct: number) => void;
   theme: "dark" | "light";
 }
 
@@ -82,6 +95,12 @@ export function ShellCarousel({
   onClose,
   onLabelChange,
   onStatusChange,
+  onEditorToggle,
+  onExplorerToggle,
+  onActiveFileChange,
+  onOpenFilesChange,
+  onTerminalHeightChange,
+  onExplorerWidthChange,
   theme,
 }: ShellCarouselProps) {
   const activeCard = cards[activeIndex];
@@ -135,6 +154,40 @@ export function ShellCarousel({
           {activeIndex + 1} / {cards.length}
         </span>
 
+        {/* Editor toggle */}
+        <button
+          type="button"
+          onClick={() => onEditorToggle(activeCard.id)}
+          className={cn(
+            "rounded p-1 transition-colors",
+            activeCard.editorVisible
+              ? "text-primary bg-primary/10"
+              : "text-muted-foreground hover:bg-accent",
+          )}
+          title={
+            activeCard.editorVisible ? "Hide editor (Ctrl+Shift+E)" : "Show editor (Ctrl+Shift+E)"
+          }
+        >
+          <LayoutPanelLeft className="h-4 w-4" />
+        </button>
+
+        {/* File explorer toggle — only shown when editor is visible */}
+        {activeCard.editorVisible && (
+          <button
+            type="button"
+            onClick={() => onExplorerToggle(activeCard.id)}
+            className={cn(
+              "rounded p-1 transition-colors",
+              activeCard.explorerVisible
+                ? "text-primary bg-primary/10"
+                : "text-muted-foreground hover:bg-accent",
+            )}
+            title={activeCard.explorerVisible ? "Hide file explorer" : "Show file explorer"}
+          >
+            <FolderTree className="h-4 w-4" />
+          </button>
+        )}
+
         <button
           type="button"
           onClick={() => onClose(activeCard.id)}
@@ -154,19 +207,21 @@ export function ShellCarousel({
         </button>
       </div>
 
-      {/* Terminal viewport — all mounted, only active visible */}
+      {/* Shell viewport — all mounted, only active visible */}
       <div className="relative h-[calc(100vh-340px)] min-h-[300px] rounded-md border overflow-hidden">
         {cards.map((card, i) => (
           <div
             key={card.id}
             className={cn("absolute inset-0", i === activeIndex ? "z-10" : "z-0 invisible")}
           >
-            <Terminal
-              sessionId={card.sessionId}
-              instanceId={card.instanceId}
+            <ShellSplitPane
+              card={card}
               theme={theme}
               onStatusChange={(status) => onStatusChange(card.id, status)}
-              className="h-full"
+              onActiveFileChange={(path) => onActiveFileChange(card.id, path)}
+              onOpenFilesChange={(paths) => onOpenFilesChange(card.id, paths)}
+              onTerminalHeightChange={(pct) => onTerminalHeightChange(card.id, pct)}
+              onExplorerWidthChange={(pct) => onExplorerWidthChange(card.id, pct)}
             />
           </div>
         ))}

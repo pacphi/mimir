@@ -1,6 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { extensionsApi } from "@/api/extensions";
-import type { ExtensionFilters, CreateExtensionInput, SetPolicyInput } from "@/types/extension";
+import type {
+  ExtensionFilters,
+  CreateExtensionInput,
+  SetPolicyInput,
+  FleetExtensionFilters,
+} from "@/types/extension";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Query keys
@@ -19,6 +24,8 @@ export const extensionKeys = {
     [...extensionKeys.all, "usageMatrix", instanceIds, extensionIds] as const,
   policies: (extensionId?: string, instanceId?: string) =>
     [...extensionKeys.all, "policies", extensionId, instanceId] as const,
+  fleet: (filters: FleetExtensionFilters) => [...extensionKeys.all, "fleet", filters] as const,
+  categoryMappings: () => [...extensionKeys.all, "categoryMappings"] as const,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -93,6 +100,23 @@ export function useExtensionPolicies(extensionId?: string, instanceId?: string) 
   });
 }
 
+export function useFleetExtensions(filters: FleetExtensionFilters = {}) {
+  return useQuery({
+    queryKey: extensionKeys.fleet(filters),
+    queryFn: () => extensionsApi.getFleetExtensions(filters),
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+  });
+}
+
+export function useCategoryMappings() {
+  return useQuery({
+    queryKey: extensionKeys.categoryMappings(),
+    queryFn: () => extensionsApi.listCategoryMappings().then((r) => r.categories),
+    staleTime: 300_000,
+  });
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Mutations
 // ─────────────────────────────────────────────────────────────────────────────
@@ -151,6 +175,60 @@ export function useDeletePolicy() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => extensionsApi.deletePolicy(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: extensionKeys.all });
+    },
+  });
+}
+
+export function useCreateCategoryMapping() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      sindri_category: string;
+      display_label: string;
+      icon?: string;
+      sort_order?: number;
+    }) => extensionsApi.createCategoryMapping(input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: extensionKeys.categoryMappings() });
+      queryClient.invalidateQueries({ queryKey: extensionKeys.fleet({}) });
+    },
+  });
+}
+
+export function useUpdateCategoryMapping() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      input,
+    }: {
+      id: string;
+      input: { display_label?: string; icon?: string | null; sort_order?: number };
+    }) => extensionsApi.updateCategoryMapping(id, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: extensionKeys.categoryMappings() });
+      queryClient.invalidateQueries({ queryKey: extensionKeys.fleet({}) });
+    },
+  });
+}
+
+export function useDeleteCategoryMapping() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => extensionsApi.deleteCategoryMapping(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: extensionKeys.categoryMappings() });
+      queryClient.invalidateQueries({ queryKey: extensionKeys.fleet({}) });
+    },
+  });
+}
+
+export function useTriggerCatalogSync() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => extensionsApi.triggerCatalogSync(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: extensionKeys.all });
     },

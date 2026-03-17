@@ -145,3 +145,48 @@ export interface DependencyNode {
   display_name: string;
   category: string;
 }
+
+// ─── Fleet Extensions (from Instance.extensions[]) ──────────────────────────
+
+export interface FleetExtension {
+  name: string;
+  display_name: string | null;
+  description: string | null;
+  category: string;
+  category_label: string;
+  instance_count: number;
+  instances: Array<{
+    id: string;
+    name: string;
+    provider: string;
+    status: string;
+  }>;
+}
+
+export interface FleetExtensionCategory {
+  sindri_category: string;
+  display_label: string;
+  count: number;
+}
+
+export interface FleetExtensionsResponse {
+  extensions: FleetExtension[];
+  total: number;
+  instances_with_extensions: number;
+  categories: FleetExtensionCategory[];
+}
+
+export interface FleetExtensionFilters {
+  category?: string;
+  search?: string;
+}
+
+export interface CategoryMapping {
+  id: string;
+  sindri_category: string;
+  display_label: string;
+  icon: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}

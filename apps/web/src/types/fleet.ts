@@ -4,6 +4,7 @@ export interface FleetStats {
   total: number;
   by_status: Record<InstanceStatus, number>;
   by_provider: Array<{ provider: string; count: number }>;
+  by_distro?: Record<string, number>;
   active_sessions: number;
   updated_at: string;
 }
@@ -28,6 +29,7 @@ export interface GeoPin {
   count: number;
   statuses: Record<string, number>;
   provider: string;
+  distro?: string;
 }
 
 export interface FleetGeoResponse {

@@ -26,6 +26,7 @@ import { z } from "zod";
 import { authMiddleware, requireRole } from "../middleware/auth.js";
 import { rateLimitDefault, rateLimitStrict } from "../middleware/rateLimit.js";
 import { logger } from "../lib/logger.js";
+import { db } from "../lib/db.js";
 import {
   listExtensions,
   getExtensionById,
@@ -154,6 +155,147 @@ extensions.get("/summary", rateLimitDefault, async (c) => {
   } catch (err) {
     logger.error({ err }, "Failed to get extension summary");
     return c.json({ error: "Internal Server Error", message: "Failed to get summary" }, 500);
+  }
+});
+
+// ─── GET /api/v1/extensions/fleet ─────────────────────────────────────────
+
+extensions.get("/fleet", rateLimitDefault, async (c) => {
+  const query = c.req.query();
+  const categoryFilter = query.category || undefined;
+  const searchFilter = query.search?.toLowerCase() || undefined;
+
+  try {
+    // 1. Query all non-destroyed instances with non-empty extensions
+    const instances = await db.instance.findMany({
+      where: {
+        status: { not: "DESTROYED" },
+        extensions: { isEmpty: false },
+      },
+      select: {
+        id: true,
+        name: true,
+        provider: true,
+        status: true,
+        extensions: true,
+      },
+    });
+
+    // 2. Build map: extensionName → { count, instances[] }
+    const extMap = new Map<
+      string,
+      {
+        count: number;
+        instances: Array<{ id: string; name: string; provider: string; status: string }>;
+      }
+    >();
+
+    for (const inst of instances) {
+      for (const extName of inst.extensions) {
+        let entry = extMap.get(extName);
+        if (!entry) {
+          entry = { count: 0, instances: [] };
+          extMap.set(extName, entry);
+        }
+        entry.count++;
+        entry.instances.push({
+          id: inst.id,
+          name: inst.name,
+          provider: inst.provider,
+          status: inst.status,
+        });
+      }
+    }
+
+    // 3. Enrich with catalog metadata (from Extension DB table)
+    const catalogExtensions = await db.extension.findMany({
+      where: { name: { in: Array.from(extMap.keys()) } },
+      select: {
+        name: true,
+        display_name: true,
+        description: true,
+        category: true,
+      },
+    });
+    const catalogMap = new Map(catalogExtensions.map((e) => [e.name, e]));
+
+    // 4. Load category mappings for display labels
+    const categoryMappings = await db.extensionCategoryMapping.findMany();
+    const categoryLabelMap = new Map(
+      categoryMappings.map((m) => [m.sindri_category, m.display_label]),
+    );
+
+    // 5. Build response
+    let fleetExtensions = Array.from(extMap.entries()).map(([name, data]) => {
+      const catalog = catalogMap.get(name);
+      const rawCategory = catalog?.category ?? "unknown";
+      const categoryLabel = categoryLabelMap.get(rawCategory) ?? rawCategory;
+
+      return {
+        name,
+        display_name: catalog?.display_name ?? null,
+        description: catalog?.description ?? null,
+        category: rawCategory,
+        category_label: categoryLabel,
+        instance_count: data.count,
+        instances: data.instances,
+      };
+    });
+
+    // 6. Apply filters
+    if (categoryFilter) {
+      fleetExtensions = fleetExtensions.filter(
+        (e) => e.category_label === categoryFilter || e.category === categoryFilter,
+      );
+    }
+    if (searchFilter) {
+      fleetExtensions = fleetExtensions.filter(
+        (e) =>
+          e.name.toLowerCase().includes(searchFilter) ||
+          (e.display_name?.toLowerCase().includes(searchFilter) ?? false) ||
+          (e.description?.toLowerCase().includes(searchFilter) ?? false),
+      );
+    }
+
+    // Sort by instance_count desc
+    fleetExtensions.sort((a, b) => b.instance_count - a.instance_count);
+
+    // Build category summary
+    const categoryCounts = new Map<
+      string,
+      { sindri_category: string; display_label: string; count: number }
+    >();
+    for (const ext of fleetExtensions) {
+      const key = ext.category;
+      const existing = categoryCounts.get(key);
+      if (existing) {
+        existing.count++;
+      } else {
+        categoryCounts.set(key, {
+          sindri_category: ext.category,
+          display_label: ext.category_label,
+          count: 1,
+        });
+      }
+    }
+
+    // Count unique instances with extensions
+    const instancesWithExtensions = new Set(
+      fleetExtensions.flatMap((e) => e.instances.map((i) => i.id)),
+    ).size;
+
+    return c.json({
+      extensions: fleetExtensions,
+      total: fleetExtensions.length,
+      instances_with_extensions: instancesWithExtensions,
+      categories: Array.from(categoryCounts.values()).sort((a, b) => b.count - a.count),
+    });
+  } catch (err) {
+    logger.error({ err }, "Failed to get fleet extensions");
+    return c.json(
+      { error: "Internal Server Error", message: "Failed to get fleet extensions" },
+      500,
+    );
   }
 });
 

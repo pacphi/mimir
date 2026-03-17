@@ -27,7 +27,17 @@ export type WsMessageType =
   | "command:dispatch"
   | "command:result"
   | "subscribe"
-  | "unsubscribe";
+  | "unsubscribe"
+  | "fs:list"
+  | "fs:listed"
+  | "fs:read"
+  | "fs:read:result"
+  | "fs:write"
+  | "fs:write:ack"
+  | "lsp:connect"
+  | "lsp:connected"
+  | "lsp:disconnect"
+  | "lsp:jsonrpc";
 
 export interface WsEnvelope<T = unknown> {
   type: WsMessageType;

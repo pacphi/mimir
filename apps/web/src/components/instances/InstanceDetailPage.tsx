@@ -18,9 +18,16 @@ import {
   FileCode,
   ChevronDown,
   ChevronRight,
+  Box,
 } from "lucide-react";
 import { useState } from "react";
 import { formatUptime, formatRelativeTime } from "@/lib/utils";
+
+const DISTRO_LABELS: Record<string, string> = {
+  ubuntu: "Ubuntu 24.04",
+  fedora: "Fedora 41",
+  opensuse: "openSUSE Leap 15.6",
+};
 
 export function InstanceDetailPage() {
   const { id } = Route.useParams();
@@ -74,7 +81,7 @@ export function InstanceDetailPage() {
         <LifecycleActions instance={instance} />
       </div>
 
-      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-5">
         <Card>
           <CardHeader className="flex flex-row items-center gap-2 pb-2">
             <Server className="h-4 w-4 text-muted-foreground" />
@@ -91,7 +98,19 @@ export function InstanceDetailPage() {
             <CardTitle className="text-sm font-medium">Region</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-lg font-semibold">{instance.region ?? "local"}</div>
+            <div className="text-lg font-semibold">{instance.region ?? "—"}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center gap-2 pb-2">
+            <Box className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Distribution</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-lg font-semibold">
+              {instance.distro ? (DISTRO_LABELS[instance.distro] ?? instance.distro) : "Unknown"}
+            </div>
           </CardContent>
         </Card>
 

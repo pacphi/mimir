@@ -48,6 +48,7 @@ const RegisterInstanceSchema = z.object({
     .regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/, "Name must be lowercase alphanumeric and hyphens"),
   provider: providerEnum,
   region: z.string().max(64).optional(),
+  distro: z.enum(["ubuntu", "fedora", "opensuse"]).optional(),
   extensions: z.array(z.string().min(1).max(128)).max(200).default([]),
   configHash: z
     .string()
@@ -74,10 +75,12 @@ const AgentRegistrationSchema = z.object({
   hostname: z.string().max(256).optional(),
   provider: providerEnum,
   region: z.string().max(64).optional(),
+  distro: z.enum(["ubuntu", "fedora", "opensuse"]).optional(),
   agent_version: z.string().max(64).optional(),
   os: z.string().max(32).optional(),
   arch: z.string().max(32).optional(),
   tags: z.record(z.string(), z.string()).optional(),
+  extensions: z.array(z.string().min(1).max(128)).max(200).optional(),
   timestamp: z.string().optional(),
 });
 
@@ -96,6 +99,7 @@ const ListInstancesQuerySchema = z.object({
     ])
     .optional(),
   region: z.string().max(64).optional(),
+  distro: z.enum(["ubuntu", "fedora", "opensuse"]).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
@@ -165,7 +169,8 @@ instances.post("/", rateLimitStrict, async (c) => {
         name: instanceName,
         provider: agent.provider,
         region: agent.region,
-        extensions: [],
+        distro: agent.distro,
+        extensions: agent.extensions ?? [],
         tags: agent.tags,
         remoteIp,
       };
@@ -270,6 +275,7 @@ function serializeInstance(instance: {
   name: string;
   provider: string;
   region: string | null;
+  distro?: string | null;
   extensions: string[];
   config_hash: string | null;
   ssh_endpoint: string | null;
@@ -282,6 +288,7 @@ function serializeInstance(instance: {
     name: instance.name,
     provider: instance.provider,
     region: instance.region,
+    distro: instance.distro ?? null,
     extensions: instance.extensions,
     configHash: instance.config_hash,
     sshEndpoint: instance.ssh_endpoint,

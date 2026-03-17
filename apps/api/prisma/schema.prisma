@@ -160,6 +160,7 @@ model Instance {
   extensions   String[]       // List of installed extension names
   config_hash  String?        // SHA256 of sindri.yaml at deploy time
   ssh_endpoint String?        // SSH connection string (host:port)
+  distro       String?        // "ubuntu", "fedora", "opensuse" — populated from agent registration
   status       InstanceStatus @default(UNKNOWN)
   team_id      String?        // optional team workspace assignment
   geo_lat      Float?         // Resolved latitude
@@ -175,6 +176,7 @@ model Instance {
   events                      Event[]
   logs                        Log[]
   terminal_sessions           TerminalSession[]
+  editor_sessions             EditorSession[]
   command_executions          CommandExecution[]
   deployments                 Deployment[]
   cost_entries                CostEntry[]
@@ -190,6 +192,7 @@ model Instance {
   @@index([name])
   @@index([status])
   @@index([provider])
+  @@index([distro])
   @@index([created_at])
   @@index([team_id])
   @@index([geo_lat, geo_lon, status])
@@ -791,6 +794,19 @@ model ExtensionPolicy {
   @@index([instance_id])
 }
 
+/// Maps Sindri extension categories to admin-curated display labels.
+model ExtensionCategoryMapping {
+  id              String   @id @default(cuid())
+  sindri_category String   @unique
+  display_label   String
+  icon            String?
+  sort_order      Int      @default(0)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  @@index([sort_order])
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Security Dashboard Models
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1039,14 +1055,37 @@ model TerminalSession {
   status      TerminalSessionStatus @default(ACTIVE)
 
   // Relations
-  instance Instance @relation(fields: [instance_id], references: [id], onDelete: Cascade)
-  user     User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  instance         Instance        @relation(fields: [instance_id], references: [id], onDelete: Cascade)
+  user             User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  editor_sessions  EditorSession[]
 
   @@index([instance_id])
   @@index([user_id])
   @@index([status])
   @@index([started_at])
   @@index([instance_id, user_id])
+}
+
+/// Editor sessions opened from the Shell IDE for audit logging.
+model EditorSession {
+  id                   String                @id @default(cuid())
+  terminal_session_id  String
+  instance_id          String
+  user_id              String
+  language_id          String?
+  root_uri             String?
+  started_at           DateTime              @default(now())
+  ended_at             DateTime?
+  status               TerminalSessionStatus @default(ACTIVE)
+
+  // Relations
+  terminal_session TerminalSession @relation(fields: [terminal_session_id], references: [id], onDelete: Cascade)
+  instance         Instance        @relation(fields: [instance_id], references: [id], onDelete: Cascade)
+
+  @@index([terminal_session_id])
+  @@index([instance_id])
+  @@index([user_id])
+  @@index([status])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

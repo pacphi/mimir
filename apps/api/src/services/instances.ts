@@ -10,6 +10,7 @@ import { db } from "../lib/db.js";
 import { redis, REDIS_CHANNELS } from "../lib/redis.js";
 import { logger } from "../lib/logger.js";
 import { resolveInstanceGeo } from "./geo/geo-resolver.js";
+import { isGenericRegion, findNearestRegion } from "./geo/region-coords.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Input types (validated by Zod in the route layer)
@@ -19,6 +20,7 @@ export interface RegisterInstanceInput {
   name: string;
   provider: string;
   region?: string;
+  distro?: string;
   extensions: string[];
   configHash?: string;
   sshEndpoint?: string;
@@ -36,6 +38,7 @@ export interface ListInstancesFilter {
   provider?: string;
   status?: InstanceStatus;
   region?: string;
+  distro?: string;
   page?: number;
   pageSize?: number;
   /** Team scope filter — injected by route layer for non-admin users */
@@ -70,6 +73,13 @@ export async function registerInstance(input: RegisterInstanceInput): Promise<In
       }
     : {};
 
+  // Derive a meaningful region from geo when agent sends a generic value (e.g. "local")
+  let resolvedRegion = input.region ?? null;
+  if (isGenericRegion(resolvedRegion) && geoResult) {
+    const nearest = findNearestRegion(geoResult.lat, geoResult.lon);
+    if (nearest) resolvedRegion = nearest;
+  }
+
   // Find the active instance with this name (if any)
   const existing = await db.instance.findFirst({
     where: {
@@ -80,7 +90,8 @@ export async function registerInstance(input: RegisterInstanceInput): Promise<In
 
   const instanceData = {
     provider: input.provider,
-    region: input.region ?? null,
+    region: resolvedRegion,
+    distro: input.distro ?? null,
     extensions: input.extensions,
     config_hash: input.configHash ?? null,
     ssh_endpoint: input.sshEndpoint ?? null,
@@ -146,6 +157,7 @@ export async function listInstances(filter: ListInstancesFilter = {}): Promise<{
     where.status = filter.status;
   }
   if (filter.region) where.region = filter.region;
+  if (filter.distro) where.distro = filter.distro;
 
   const [instances, total] = await Promise.all([
     db.instance.findMany({

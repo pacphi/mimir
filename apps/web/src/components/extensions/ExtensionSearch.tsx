@@ -1,36 +1,23 @@
-import { Search, X, Star } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { useExtensionCategories } from "@/hooks/useExtensions";
-import type { ExtensionFilters } from "@/types/extension";
-
-const KNOWN_CATEGORIES = ["AI", "Languages", "Infrastructure", "Databases", "Tools"];
+import type { FleetExtensionFilters, FleetExtensionCategory } from "@/types/extension";
 
 interface ExtensionSearchProps {
-  filters: ExtensionFilters;
-  onFiltersChange: (filters: ExtensionFilters) => void;
+  filters: FleetExtensionFilters;
+  onFiltersChange: (filters: FleetExtensionFilters) => void;
+  categories?: FleetExtensionCategory[];
 }
 
-export function ExtensionSearch({ filters, onFiltersChange }: ExtensionSearchProps) {
-  const { data: categories } = useExtensionCategories();
-
-  const allCategories = categories?.length ? categories.map((c) => c.category) : KNOWN_CATEGORIES;
-
+export function ExtensionSearch({ filters, onFiltersChange, categories }: ExtensionSearchProps) {
   const handleSearch = (search: string) => {
     onFiltersChange({ ...filters, search: search || undefined });
   };
 
-  const handleCategory = (category: string) => {
+  const handleCategory = (label: string) => {
     onFiltersChange({
       ...filters,
-      category: filters.category === category ? undefined : category,
-    });
-  };
-
-  const handleOfficialToggle = () => {
-    onFiltersChange({
-      ...filters,
-      isOfficial: filters.isOfficial ? undefined : true,
+      category: filters.category === label ? undefined : label,
     });
   };
 
@@ -38,7 +25,16 @@ export function ExtensionSearch({ filters, onFiltersChange }: ExtensionSearchPro
     onFiltersChange({});
   };
 
-  const hasActiveFilters = filters.search || filters.category || filters.isOfficial;
+  const hasActiveFilters = filters.search || filters.category;
+
+  // Deduplicate categories by display_label, summing counts
+  const uniqueCategories = new Map<string, number>();
+  for (const cat of categories ?? []) {
+    uniqueCategories.set(
+      cat.display_label,
+      (uniqueCategories.get(cat.display_label) ?? 0) + cat.count,
+    );
+  }
 
   return (
     <div className="space-y-3">
@@ -64,33 +60,20 @@ export function ExtensionSearch({ filters, onFiltersChange }: ExtensionSearchPro
 
       {/* Filters row */}
       <div className="flex flex-wrap items-center gap-2">
-        {/* Official filter */}
-        <button
-          data-testid="extension-official-filter"
-          onClick={handleOfficialToggle}
-          className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-            filters.isOfficial
-              ? "border-indigo-500 bg-indigo-500/20 text-indigo-300"
-              : "border-gray-700 text-gray-400 hover:border-gray-600 hover:text-gray-300"
-          }`}
-        >
-          <Star className="h-3 w-3" />
-          Official
-        </button>
-
-        {/* Category filters */}
-        {allCategories.map((category) => (
+        {/* Category filters from API */}
+        {Array.from(uniqueCategories.entries()).map(([label, count]) => (
           <button
-            key={category}
-            data-testid={`extension-category-filter-${category.toLowerCase()}`}
-            onClick={() => handleCategory(category)}
-            className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-              filters.category === category
+            key={label}
+            data-testid={`extension-category-filter-${label.toLowerCase().replace(/\s+/g, "-")}`}
+            onClick={() => handleCategory(label)}
+            className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+              filters.category === label
                 ? "border-indigo-500 bg-indigo-500/20 text-indigo-300"
                 : "border-gray-700 text-gray-400 hover:border-gray-600 hover:text-gray-300"
             }`}
           >
-            {category}
+            {label}
+            <span className="text-[10px] opacity-60">{count}</span>
           </button>
         ))}
 

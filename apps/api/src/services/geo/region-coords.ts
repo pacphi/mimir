@@ -246,3 +246,50 @@ export function resolveRegionCoords(
 export function getAllRegionCoords(): Readonly<Record<string, RegionCoord>> {
   return REGION_COORDS;
 }
+
+/** Generic/placeholder regions that should be replaced when better data is available. */
+const GENERIC_REGIONS = new Set(["local", "default", "production", "staging", ""]);
+
+/**
+ * Returns true when the region is missing or is a generic placeholder
+ * that should be replaced with a geo-derived value.
+ */
+export function isGenericRegion(region: string | null | undefined): boolean {
+  return !region || GENERIC_REGIONS.has(region.toLowerCase());
+}
+
+/**
+ * Find the nearest known IATA/cloud region code for given coordinates.
+ * Only considers Fly.io-style short codes (3-letter IATA) so Docker
+ * instances get a concise, recognisable region label.
+ */
+export function findNearestRegion(lat: number, lon: number): string | null {
+  // Only consider short IATA codes (fly-style) for Docker/k8s instances
+  const iataEntries = Object.entries(REGION_COORDS).filter(([key]) => /^[a-z]{3}$/.test(key));
+
+  if (iataEntries.length === 0) return null;
+
+  let bestKey = "";
+  let bestDist = Infinity;
+
+  for (const [key, coord] of iataEntries) {
+    const d = haversine(lat, lon, coord.lat, coord.lon);
+    if (d < bestDist) {
+      bestDist = d;
+      bestKey = key;
+    }
+  }
+
+  return bestKey || null;
+}
+
+/** Haversine distance in km between two lat/lon pairs. */
+function haversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}

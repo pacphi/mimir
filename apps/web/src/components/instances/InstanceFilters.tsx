@@ -11,6 +11,12 @@ import {
 } from "@/components/ui/select";
 
 const PROVIDERS = ["fly", "docker", "devpod", "e2b", "kubernetes", "runpod", "northflank"];
+const DISTROS: { value: string; label: string }[] = [
+  { value: "ubuntu", label: "Ubuntu" },
+  { value: "fedora", label: "Fedora" },
+  { value: "opensuse", label: "openSUSE" },
+];
+
 const STATUSES: { value: InstanceStatus; label: string }[] = [
   { value: "RUNNING", label: "Running" },
   { value: "STOPPED", label: "Stopped" },
@@ -36,10 +42,19 @@ export function InstanceFilters({
   filteredCount,
 }: InstanceFiltersProps) {
   const hasActiveFilters =
-    Boolean(filters.search) || Boolean(filters.provider) || Boolean(filters.status);
+    Boolean(filters.search) ||
+    Boolean(filters.provider) ||
+    Boolean(filters.distro) ||
+    Boolean(filters.status);
 
   function clearFilters() {
-    onChange({ search: "", provider: undefined, status: undefined, region: undefined });
+    onChange({
+      search: "",
+      provider: undefined,
+      distro: undefined,
+      status: undefined,
+      region: undefined,
+    });
   }
 
   return (
@@ -70,6 +85,24 @@ export function InstanceFilters({
           {PROVIDERS.map((p) => (
             <SelectItem key={p} value={p} className="capitalize">
               {p}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      {/* Distro filter */}
+      <Select
+        value={filters.distro ?? ""}
+        onValueChange={(val) => onChange({ ...filters, distro: val === "all" ? undefined : val })}
+      >
+        <SelectTrigger className="w-full sm:w-[150px]" aria-label="Filter by distro">
+          <SelectValue placeholder="All Distros" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All Distros</SelectItem>
+          {DISTROS.map((d) => (
+            <SelectItem key={d.value} value={d.value}>
+              {d.label}
             </SelectItem>
           ))}
         </SelectContent>

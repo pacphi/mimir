@@ -9,6 +9,7 @@ import { Hono } from "hono";
 import { authMiddleware } from "../../middleware/auth.js";
 import { rateLimitStrict } from "../../middleware/rateLimit.js";
 import { db } from "../../lib/db.js";
+import { redis, REDIS_KEYS } from "../../lib/redis.js";
 import { createTerminalSession, closeTerminalSession } from "../../services/terminal-sessions.js";
 import { logger } from "../../lib/logger.js";
 
@@ -24,11 +25,25 @@ terminalRouter.post("/:id/terminal", rateLimitStrict, async (c) => {
   // Verify instance exists
   const instance = await db.instance.findUnique({
     where: { id: instanceId },
-    select: { id: true, name: true },
+    select: { id: true, name: true, provider: true },
   });
 
   if (!instance) {
     return c.json({ error: "Not Found", message: "Instance not found" }, 404);
+  }
+
+  // For non-Docker providers, verify the agent is online before creating a session
+  if (instance.provider !== "docker") {
+    const online = await redis.get(REDIS_KEYS.instanceOnline(instanceId));
+    if (!online) {
+      return c.json(
+        {
+          error: "Service Unavailable",
+          message: "The instance agent is offline. Terminal sessions require a connected agent.",
+        },
+        503,
+      );
+    }
   }
 
   const sessionId = crypto.randomUUID();

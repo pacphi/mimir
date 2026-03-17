@@ -79,6 +79,7 @@ export function MapPins({ pins }: MapPinsProps) {
             label={properties.label}
             region={properties.region}
             provider={properties.provider}
+            distro={properties.distro}
             count={properties.count}
             statuses={properties.statuses}
           />

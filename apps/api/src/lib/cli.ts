@@ -12,7 +12,7 @@
  *   4. Throws CLI_NOT_FOUND
  */
 
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync } from "node:fs";
 import { logger } from "./logger.js";
@@ -90,8 +90,8 @@ export class CliExitError extends Error {
 }
 
 /**
- * Returns true if the sindri binary is explicitly configured and exists on disk.
- * Returns false when the only option is a bare PATH lookup (not verifiable without exec).
+ * Returns true if the sindri binary can be found via any of the fallback paths.
+ * Checks SINDRI_BIN_PATH, local npm bin, and system PATH (via `which`).
  */
 export function isCliConfigured(): boolean {
   const explicit = process.env.SINDRI_BIN_PATH;
@@ -100,7 +100,13 @@ export function isCliConfigured(): boolean {
   const localNpm = "./node_modules/.bin/sindri";
   if (existsSync(localNpm)) return true;
 
-  return false;
+  // Check if sindri is on the system PATH
+  try {
+    execFileSync("which", ["sindri"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

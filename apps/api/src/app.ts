@@ -24,6 +24,7 @@ import { logsRouter, instanceLogsRouter } from "./routes/logs.js";
 import { alertsRouter } from "./routes/alerts.js";
 import { adminUsersRouter } from "./routes/admin/users.js";
 import { adminTeamsRouter } from "./routes/admin/teams.js";
+import { adminExtensionsRouter } from "./routes/admin/extensions.js";
 import { auditRouter } from "./routes/audit.js";
 import { extensionsRouter } from "./routes/extensions.js";
 import { costsRouter } from "./routes/costs.js";
@@ -72,16 +73,21 @@ export function createApp(): Hono {
   //
   // Image resolution:
   //   SINDRI_DEFAULT_IMAGE — used when user leaves image fields blank
-  //     Dev default:  "sindri:latest" (locally-built via `make v3-docker-build-fast`)
+  //     Dev default:  "sindri:v3-ubuntu-dev" (locally-built via `make v3-docker-build-dev`)
   //     Prod example: "ghcr.io/pacphi/sindri:3.1.0"
   //   SINDRI_IMAGE_REGISTRY + SINDRI_IMAGE_VERSION — used for image_config mode
   app.get("/api/config", (c) => {
     return c.json({
       authBypass: isDevAuthBypassEnabled(),
       nodeEnv: process.env.NODE_ENV || "development",
-      sindriDefaultImage: process.env.SINDRI_DEFAULT_IMAGE || "sindri:latest",
+      sindriDefaultImage: process.env.SINDRI_DEFAULT_IMAGE || "sindri:v3-ubuntu-dev",
       sindriImageRegistry: process.env.SINDRI_IMAGE_REGISTRY || "ghcr.io/pacphi/sindri",
       sindriImageVersion: process.env.SINDRI_IMAGE_VERSION || "latest",
+      editorFsRoot: process.env.EDITOR_FS_ROOT || "/alt/home/developer/workspace",
+      sindriSupportedDistros: (process.env.SINDRI_SUPPORTED_DISTROS || "ubuntu,fedora,opensuse")
+        .split(",")
+        .map((s) => s.trim()),
+      sindriDefaultDistro: process.env.SINDRI_DEFAULT_DISTRO || "ubuntu",
     });
   });
 
@@ -108,6 +114,7 @@ export function createApp(): Hono {
   app.route("/api/v1/alerts", alertsRouter);
   app.route("/api/v1/admin/users", adminUsersRouter);
   app.route("/api/v1/admin/teams", adminTeamsRouter);
+  app.route("/api/v1/admin/extensions", adminExtensionsRouter);
   app.route("/api/v1/audit", auditRouter);
   app.route("/api/v1/extensions", extensionsRouter);
   app.route("/api/v1/costs", costsRouter);

@@ -23,6 +23,8 @@ export const CHANNEL = {
   EVENTS: "events",
   COMMANDS: "commands",
   LLM_USAGE: "llm_usage",
+  FILESYSTEM: "filesystem",
+  LSP: "lsp",
 } as const;
 
 export type Channel = (typeof CHANNEL)[keyof typeof CHANNEL];
@@ -62,6 +64,20 @@ export const MESSAGE_TYPE = {
 
   // LLM Usage channel
   LLM_USAGE_BATCH: "llm_usage:batch",
+
+  // Filesystem channel
+  FS_LIST: "fs:list",
+  FS_LISTED: "fs:listed",
+  FS_READ: "fs:read",
+  FS_READ_RESULT: "fs:read:result",
+  FS_WRITE: "fs:write",
+  FS_WRITE_ACK: "fs:write:ack",
+
+  // LSP channel
+  LSP_CONNECT: "lsp:connect",
+  LSP_CONNECTED: "lsp:connected",
+  LSP_DISCONNECT: "lsp:disconnect",
+  LSP_JSONRPC: "lsp:jsonrpc",
 
   // System / connection-level
   ERROR: "error",
@@ -254,6 +270,85 @@ export interface ErrorPayload {
 
 export interface AckPayload {
   ok: true;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Payload types — filesystem channel
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface FsEntry {
+  name: string;
+  path: string;
+  type: "file" | "directory" | "symlink";
+  size?: number;
+  modified?: string;
+}
+
+export interface FsListPayload {
+  sessionId: string;
+  path: string;
+  requestId: string;
+}
+
+export interface FsListedPayload {
+  sessionId: string;
+  path: string;
+  requestId: string;
+  entries: FsEntry[];
+  error?: string;
+}
+
+export interface FsReadPayload {
+  sessionId: string;
+  path: string;
+  requestId: string;
+}
+
+export interface FsReadResultPayload {
+  sessionId: string;
+  path: string;
+  requestId: string;
+  content: string; // base64-encoded file content
+  encoding: "utf8" | "binary";
+  error?: string;
+}
+
+export interface FsWritePayload {
+  sessionId: string;
+  path: string;
+  content: string; // base64-encoded
+  requestId: string;
+}
+
+export interface FsWriteAckPayload {
+  sessionId: string;
+  path: string;
+  requestId: string;
+  error?: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Payload types — LSP channel
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface LspConnectPayload {
+  sessionId: string;
+  languageId: string;
+  rootUri: string;
+}
+
+export interface LspConnectedPayload {
+  sessionId: string;
+  languageId: string;
+}
+
+export interface LspDisconnectPayload {
+  sessionId: string;
+}
+
+export interface LspJsonRpcPayload {
+  sessionId: string;
+  message: string; // raw JSON-RPC string
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

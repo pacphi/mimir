@@ -5,6 +5,7 @@ import { z } from "zod";
 const instancesSearchSchema = z.object({
   provider: z.string().optional(),
   region: z.string().optional(),
+  distro: z.string().optional(),
   status: z.string().optional(),
   search: z.string().optional(),
   page: z.number().int().positive().default(1),

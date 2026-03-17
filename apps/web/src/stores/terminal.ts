@@ -29,6 +29,16 @@ interface TerminalStore {
   updateShellCardStatus: (id: string, status: ShellCard["status"]) => void;
   reorderShellCards: (fromIndex: number, toIndex: number) => void;
   setActiveShellIndex: (index: number) => void;
+
+  // Editor state actions
+  toggleEditorVisible: (id: string) => void;
+  toggleExplorerVisible: (id: string) => void;
+  setActiveFilePath: (id: string, path: string | null) => void;
+  setOpenFilePaths: (id: string, paths: string[]) => void;
+  setCwd: (id: string, cwd: string) => void;
+  setLspStatus: (id: string, status: ShellCard["lspStatus"]) => void;
+  setTerminalHeightPct: (id: string, pct: number) => void;
+  setExplorerWidthPct: (id: string, pct: number) => void;
 }
 
 export const useTerminalStore = create<TerminalStore>()(
@@ -147,6 +157,76 @@ export const useTerminalStore = create<TerminalStore>()(
 
       setActiveShellIndex: (index) => {
         set({ activeShellIndex: index });
+      },
+
+      toggleEditorVisible: (id) => {
+        set((state) => ({
+          shellCards: state.shellCards.map((c) => {
+            if (c.id !== id) return c;
+            const nowVisible = !c.editorVisible;
+            return {
+              ...c,
+              editorVisible: nowVisible,
+              // Set sensible defaults when first enabling editor
+              explorerVisible: nowVisible ? c.explorerVisible || true : c.explorerVisible,
+              terminalHeightPct:
+                nowVisible && c.terminalHeightPct === 100 ? 40 : c.terminalHeightPct,
+              explorerWidthPct: nowVisible && c.explorerWidthPct === 0 ? 25 : c.explorerWidthPct,
+            };
+          }),
+        }));
+      },
+
+      toggleExplorerVisible: (id) => {
+        set((state) => ({
+          shellCards: state.shellCards.map((c) =>
+            c.id === id ? { ...c, explorerVisible: !c.explorerVisible } : c,
+          ),
+        }));
+      },
+
+      setActiveFilePath: (id, path) => {
+        set((state) => ({
+          shellCards: state.shellCards.map((c) =>
+            c.id === id ? { ...c, activeFilePath: path } : c,
+          ),
+        }));
+      },
+
+      setOpenFilePaths: (id, paths) => {
+        set((state) => ({
+          shellCards: state.shellCards.map((c) =>
+            c.id === id ? { ...c, openFilePaths: paths } : c,
+          ),
+        }));
+      },
+
+      setCwd: (id, cwd) => {
+        set((state) => ({
+          shellCards: state.shellCards.map((c) => (c.id === id ? { ...c, cwd } : c)),
+        }));
+      },
+
+      setLspStatus: (id, status) => {
+        set((state) => ({
+          shellCards: state.shellCards.map((c) => (c.id === id ? { ...c, lspStatus: status } : c)),
+        }));
+      },
+
+      setTerminalHeightPct: (id, pct) => {
+        set((state) => ({
+          shellCards: state.shellCards.map((c) =>
+            c.id === id ? { ...c, terminalHeightPct: pct } : c,
+          ),
+        }));
+      },
+
+      setExplorerWidthPct: (id, pct) => {
+        set((state) => ({
+          shellCards: state.shellCards.map((c) =>
+            c.id === id ? { ...c, explorerWidthPct: pct } : c,
+          ),
+        }));
       },
     }),
     {

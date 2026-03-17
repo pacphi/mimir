@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Plus, SquareTerminal } from "lucide-react";
 import type { Instance } from "@/types/instance";
 import type { ShellCard } from "@/types/terminal";
@@ -26,6 +26,12 @@ export function ShellsTab({ instances }: ShellsTabProps) {
     updateShellCardStatus,
     reorderShellCards,
     setActiveShellIndex,
+    toggleEditorVisible,
+    toggleExplorerVisible,
+    setActiveFilePath,
+    setOpenFilePaths,
+    setTerminalHeightPct,
+    setExplorerWidthPct,
   } = useTerminalStore();
 
   const selectedInstance = instances.find((i) => i.id === selectedIds[0]);
@@ -44,6 +50,14 @@ export function ShellsTab({ instances }: ShellsTabProps) {
         label: `Shell - ${selectedInstance.name}`,
         status: "connecting",
         createdAt: new Date().toISOString(),
+        editorVisible: false,
+        activeFilePath: null,
+        openFilePaths: [],
+        cwd: null,
+        lspStatus: "disconnected",
+        explorerVisible: false,
+        terminalHeightPct: 100,
+        explorerWidthPct: 25,
       };
       addShellCard(card);
     } catch (err) {
@@ -67,6 +81,21 @@ export function ShellsTab({ instances }: ShellsTabProps) {
     },
     [shellCards, removeShellCard],
   );
+
+  // Keyboard shortcut: Ctrl+Shift+E / Cmd+Shift+E to toggle editor
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "E") {
+        e.preventDefault();
+        const activeCard = shellCards[activeShellIndex];
+        if (activeCard) {
+          toggleEditorVisible(activeCard.id);
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [shellCards, activeShellIndex, toggleEditorVisible]);
 
   return (
     <div className="space-y-3">
@@ -120,6 +149,12 @@ export function ShellsTab({ instances }: ShellsTabProps) {
           onClose={handleClose}
           onLabelChange={updateShellCardLabel}
           onStatusChange={updateShellCardStatus}
+          onEditorToggle={toggleEditorVisible}
+          onExplorerToggle={toggleExplorerVisible}
+          onActiveFileChange={setActiveFilePath}
+          onOpenFilesChange={setOpenFilePaths}
+          onTerminalHeightChange={setTerminalHeightPct}
+          onExplorerWidthChange={setExplorerWidthPct}
           theme="dark"
         />
       ) : (

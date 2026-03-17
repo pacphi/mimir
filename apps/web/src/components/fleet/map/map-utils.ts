@@ -13,6 +13,7 @@ export interface GeoPinProperties {
   count: number;
   statuses: Record<string, number>;
   provider: string;
+  distro?: string;
 }
 
 /**
@@ -33,6 +34,7 @@ export function pinsToGeoJSON(pins: GeoPin[]): Feature<Point, GeoPinProperties>[
       count: pin.count,
       statuses: pin.statuses,
       provider: pin.provider,
+      distro: pin.distro,
     },
   }));
 }

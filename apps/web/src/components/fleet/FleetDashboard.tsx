@@ -45,7 +45,7 @@ export function FleetDashboard() {
         {/* Stacked sidebar cards */}
         <div className="flex flex-col gap-4">
           <ProviderDistribution stats={stats} loading={statsLoading} />
-          <ActiveSessionsCard stats={stats} loading={statsLoading} />
+          <ActiveSessionsCard />
           <DeploymentTimeline data={deployments} loading={deploymentsLoading} />
         </div>
       </div>

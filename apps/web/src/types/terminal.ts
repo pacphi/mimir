@@ -94,4 +94,14 @@ export interface ShellCard {
   label: string; // User-editable custom label
   status: TerminalSession["status"];
   createdAt: string; // ISO timestamp
+  // Editor integration
+  editorVisible: boolean;
+  activeFilePath: string | null;
+  openFilePaths: string[];
+  cwd: string | null;
+  lspStatus: "disconnected" | "connecting" | "connected" | "error";
+  // Panel layout persistence
+  explorerVisible: boolean;
+  terminalHeightPct: number;
+  explorerWidthPct: number;
 }

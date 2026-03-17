@@ -12,6 +12,7 @@ interface InstancePinMarkerProps {
   label: string;
   region: string;
   provider: string;
+  distro?: string;
   count: number;
   statuses: Record<string, number>;
 }
@@ -32,6 +33,7 @@ export function InstancePinMarker({
   label,
   region,
   provider,
+  distro,
   count,
   statuses,
 }: InstancePinMarkerProps) {
@@ -73,6 +75,7 @@ export function InstancePinMarker({
             <div className="font-semibold text-foreground">{label}</div>
             <div className="text-xs text-muted-foreground mt-0.5">
               {region} &middot; {provider}
+              {distro ? ` \u00b7 ${distro}` : ""}
             </div>
             <div className="mt-1.5 space-y-0.5">
               {Object.entries(statuses).map(([status, count]) => (

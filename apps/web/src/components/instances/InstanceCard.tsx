@@ -5,6 +5,12 @@ import { MetricsGauge } from "./MetricsGauge";
 import { formatBytes, formatRelativeTime, formatUptime } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 
+const DISTRO_DISPLAY: Record<string, string> = {
+  ubuntu: "Ubuntu",
+  fedora: "Fedora",
+  opensuse: "openSUSE",
+};
+
 interface InstanceCardProps {
   instance: Instance;
   className?: string;
@@ -55,6 +61,12 @@ export function InstanceCard({ instance, className, onClick }: InstanceCardProps
           <Server className="h-3 w-3" />
           {instance.provider}
         </span>
+        {instance.distro && (
+          <span className="inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 text-xs font-medium">
+            {DISTRO_DISPLAY[instance.distro] ??
+              instance.distro.charAt(0).toUpperCase() + instance.distro.slice(1)}
+          </span>
+        )}
         {instance.region && (
           <span className="flex items-center gap-1">
             <MapPin className="h-3 w-3" />

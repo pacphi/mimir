@@ -6,11 +6,11 @@ import { useYamlValidation } from "./useYamlValidation";
 import { cn } from "@/lib/utils";
 import type { ValidationError } from "./YamlValidator";
 
-const DEFAULT_YAML = `version: "1.0"
+const DEFAULT_YAML = `version: "3.0"
 name: my-instance
 deployment:
   provider: docker
-  image: ghcr.io/sindri-dev/sindri:latest
+  distro: ubuntu
   resources:
     memory: 4GB
     cpus: 2

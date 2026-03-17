@@ -47,6 +47,7 @@ export interface RegistrationPayload {
   agentVersion: string;
   os: string;
   arch: string;
+  distro?: string; // "ubuntu" | "fedora" | "opensuse" — populated by Sindri agent
   tags?: Record<string, string>;
   geo?: {
     lat?: number;
@@ -143,4 +144,74 @@ export interface NormalizedCostRecord {
   currency: string;
   source: "estimated" | "actual" | "reconciled";
   tags?: Record<string, string>;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Filesystem channel payloads
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface FsEntry {
+  name: string;
+  path: string;
+  type: "file" | "directory" | "symlink";
+  size?: number;
+  modified?: string;
+}
+
+export interface FsListPayload {
+  sessionId: string;
+  path: string;
+  requestId: string;
+}
+
+export interface FsListedPayload {
+  sessionId: string;
+  path: string;
+  requestId: string;
+  entries: FsEntry[];
+  error?: string;
+}
+
+export interface FsReadPayload {
+  sessionId: string;
+  path: string;
+  requestId: string;
+}
+
+export interface FsReadResultPayload {
+  sessionId: string;
+  path: string;
+  requestId: string;
+  content: string;
+  encoding: "utf8" | "binary";
+  error?: string;
+}
+
+export interface FsWritePayload {
+  sessionId: string;
+  path: string;
+  content: string;
+  requestId: string;
+}
+
+export interface FsWriteAckPayload {
+  sessionId: string;
+  path: string;
+  requestId: string;
+  error?: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LSP channel payloads
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface LspConnectPayload {
+  sessionId: string;
+  languageId: string;
+  rootUri: string;
+}
+
+export interface LspJsonRpcPayload {
+  sessionId: string;
+  message: string;
 }

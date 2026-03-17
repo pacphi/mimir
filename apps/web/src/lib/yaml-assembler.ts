@@ -5,6 +5,8 @@
 import type { ProviderId } from "@/types/provider-options";
 import { toApiProvider, toDevpodBackend } from "@/types/provider-options";
 
+export type SindriDistro = "ubuntu" | "fedora" | "opensuse";
+
 export interface ImageConfig {
   registry?: string;
   version?: string;
@@ -24,7 +26,7 @@ export interface VolumeEntry {
 export interface ImageDefaults {
   registry: string;
   version: string;
-  /** Local image name for dev mode (e.g. "sindri:latest") */
+  /** Local image name for dev mode (e.g. "sindri:v3-ubuntu-dev") */
   defaultImage: string;
   /** true when NODE_ENV !== "production" */
   isDev: boolean;
@@ -35,6 +37,7 @@ export interface AssemblerInput {
   provider: ProviderId;
   imageConfig: ImageConfig;
   imageDefaults: ImageDefaults;
+  distro: SindriDistro;
   homeDataSizeGb: number;
   volumes: VolumeEntry[];
   profileName: string | null;
@@ -128,6 +131,7 @@ export function assembleYaml(input: AssemblerInput): string {
   // Deployment
   lines.push("deployment:");
   lines.push(`  provider: ${apiProvider}`);
+  lines.push(`  distro: ${input.distro}`);
 
   // Image config — always emit so the YAML is self-contained and portable.
   // In dev mode, default to a local image (deployment.image: sindri:latest).
@@ -147,19 +151,28 @@ export function assembleYaml(input: AssemblerInput): string {
     // User explicitly configured image fields — always use image_config
     lines.push("  image_config:");
     lines.push(`    registry: ${yamlValue(img.registry || imgDefaults.registry)}`);
-    if (img.version || (!img.tagOverride && !img.digest)) {
-      lines.push(`    version: ${yamlValue(img.version || imgDefaults.version)}`);
+    if (img.tagOverride) {
+      lines.push(`    tag_override: ${yamlValue(img.tagOverride)}`);
+    } else if (img.digest) {
+      lines.push(`    digest: ${yamlValue(img.digest)}`);
+    } else {
+      const baseVersion = img.version || imgDefaults.version;
+      lines.push(`    version: ${yamlValue(baseVersion)}`);
     }
-    if (img.tagOverride) lines.push(`    tag_override: ${yamlValue(img.tagOverride)}`);
-    if (img.digest) lines.push(`    digest: ${yamlValue(img.digest)}`);
     if (img.pullPolicy) lines.push(`    pull_policy: ${img.pullPolicy}`);
     if (img.verifySignature) lines.push("    verify_signature: true");
     if (img.verifyProvenance) lines.push("    verify_provenance: true");
   } else if (imgDefaults.isDev) {
-    // Dev mode — use local image directly
-    lines.push(`  image: ${imgDefaults.defaultImage}`);
+    // Dev mode — use local dev image (built via `make v3-docker-build-dev`)
+    // Derive distro-specific image from the configured SINDRI_DEFAULT_IMAGE
+    const devImage = imgDefaults.defaultImage.replace(
+      /-(ubuntu|fedora|opensuse)-/,
+      `-${input.distro}-`,
+    );
+    lines.push(`  image: ${devImage}`);
   } else {
     // Production — use registry-based image_config with defaults
+    // CLI resolves distro-specific tags from deployment.distro
     lines.push("  image_config:");
     lines.push(`    registry: ${yamlValue(imgDefaults.registry)}`);
     lines.push(`    version: ${yamlValue(imgDefaults.version)}`);

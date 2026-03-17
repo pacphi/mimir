@@ -18,7 +18,7 @@ import {
 import { deploymentsApi } from "@/api/deployments";
 import { toApiProvider } from "@/types/provider-options";
 import { useAppConfig } from "@/hooks/useAppConfig";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const WIZARD_STEPS: WizardStep[] = [
   { id: 1, label: "Name & Provider", description: "Instance name and provider" },
@@ -100,10 +100,17 @@ export function GuidedWizard({ onCancel, cliAvailable = true }: GuidedWizardProp
   const imageDefaults = {
     registry: appConfig?.sindriImageRegistry ?? "ghcr.io/pacphi/sindri",
     version: appConfig?.sindriImageVersion ?? "latest",
-    defaultImage: appConfig?.sindriDefaultImage ?? "sindri:latest",
+    defaultImage: appConfig?.sindriDefaultImage ?? "sindri:v3-ubuntu-dev",
     isDev,
   };
   const [validationError, setValidationError] = useState<string | null>(null);
+
+  // Initialize distro from app config when it loads
+  useEffect(() => {
+    if (appConfig) {
+      store.initFromConfig(appConfig);
+    }
+  }, [appConfig]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleNext() {
     const storeState = useDeploymentWizardStore.getState();

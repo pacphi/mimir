@@ -7,6 +7,12 @@ import { InstanceRowActions } from "./InstanceRowActions";
 import { formatRelativeTime } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 
+const DISTRO_DISPLAY: Record<string, string> = {
+  ubuntu: "Ubuntu",
+  fedora: "Fedora",
+  opensuse: "openSUSE",
+};
+
 interface InstanceTableProps {
   instances: Instance[];
   onSelectInstance?: (instance: Instance) => void;
@@ -57,6 +63,9 @@ export function InstanceTable({
             <th className="h-11 px-4 text-left font-medium text-muted-foreground">Status</th>
             <th className="h-11 px-4 text-left font-medium text-muted-foreground hidden sm:table-cell">
               Provider
+            </th>
+            <th className="h-11 px-4 text-left font-medium text-muted-foreground hidden md:table-cell">
+              Distro
             </th>
             <th className="h-11 px-4 text-left font-medium text-muted-foreground hidden md:table-cell">
               Region
@@ -140,6 +149,16 @@ export function InstanceTable({
                 {/* Provider */}
                 <td className="h-14 px-4 capitalize hidden sm:table-cell text-muted-foreground">
                   {instance.provider}
+                </td>
+
+                {/* Distro */}
+                <td className="h-14 px-4 hidden md:table-cell text-muted-foreground">
+                  {instance.distro ? (
+                    (DISTRO_DISPLAY[instance.distro] ??
+                    instance.distro.charAt(0).toUpperCase() + instance.distro.slice(1))
+                  ) : (
+                    <span className="text-muted-foreground/50">&mdash;</span>
+                  )}
                 </td>
 
                 {/* Region */}

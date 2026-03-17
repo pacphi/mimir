@@ -9,6 +9,9 @@ import type {
   ExtensionCategory,
   ExtensionSummary,
   UsageMatrix,
+  FleetExtensionsResponse,
+  FleetExtensionFilters,
+  CategoryMapping,
 } from "@/types/extension";
 import { apiFetch } from "@/lib/api-fetch";
 
@@ -132,5 +135,54 @@ export const extensionsApi = {
     policies: Record<string, { policy: string; pinned_version: string | null }>;
   }> {
     return apiFetch(`/extensions/policies/effective/${instanceId}`);
+  },
+
+  // ─── Fleet ────────────────────────────────────────────────────────────────────
+
+  getFleetExtensions(filters: FleetExtensionFilters = {}): Promise<FleetExtensionsResponse> {
+    const params = new URLSearchParams();
+    if (filters.category) params.set("category", filters.category);
+    if (filters.search) params.set("search", filters.search);
+    return apiFetch<FleetExtensionsResponse>(`/extensions/fleet?${params.toString()}`);
+  },
+
+  // ─── Admin Category Mappings ──────────────────────────────────────────────────
+
+  listCategoryMappings(): Promise<{ categories: CategoryMapping[] }> {
+    return apiFetch<{ categories: CategoryMapping[] }>("/admin/extensions/categories");
+  },
+
+  createCategoryMapping(input: {
+    sindri_category: string;
+    display_label: string;
+    icon?: string;
+    sort_order?: number;
+  }): Promise<CategoryMapping> {
+    return apiFetch<CategoryMapping>("/admin/extensions/categories", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
+
+  updateCategoryMapping(
+    id: string,
+    input: { display_label?: string; icon?: string | null; sort_order?: number },
+  ): Promise<CategoryMapping> {
+    return apiFetch<CategoryMapping>(`/admin/extensions/categories/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    });
+  },
+
+  deleteCategoryMapping(id: string): Promise<{ deleted: boolean }> {
+    return apiFetch<{ deleted: boolean }>(`/admin/extensions/categories/${id}`, {
+      method: "DELETE",
+    });
+  },
+
+  triggerCatalogSync(): Promise<{ synced: boolean; count: number }> {
+    return apiFetch<{ synced: boolean; count: number }>("/admin/extensions/sync", {
+      method: "POST",
+    });
   },
 };

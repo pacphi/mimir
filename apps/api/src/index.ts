@@ -23,6 +23,7 @@
 import { serve } from "@hono/node-server";
 import { createApp } from "./app.js";
 import { attachWebSocketGateway } from "./agents/gateway.js";
+import { attachLspBridge } from "./routes/lsp.js";
 import { db } from "./lib/db.js";
 import { connectRedis, disconnectRedis } from "./lib/redis.js";
 import { logger } from "./lib/logger.js";
@@ -36,6 +37,7 @@ import { startCostWorker, stopCostWorker } from "./workers/cost.worker.js";
 import { startCatalogWorker, stopCatalogWorker } from "./workers/catalog.worker.js";
 import { startDriftDetector, stopDriftDetector } from "./services/drift/detector.worker.js";
 import { validateEnv } from "./lib/env-validation.js";
+import { startCatalogSync, stopCatalogSync } from "./services/extensions/catalog-sync.service.js";
 
 const PORT = parseInt(process.env.PORT ?? "3001", 10);
 
@@ -77,6 +79,9 @@ async function main(): Promise<void> {
   // Attach WebSocket gateway to the same HTTP server
   attachWebSocketGateway(server as unknown as import("http").Server);
 
+  // Attach LSP bridge for Shell IDE language server support
+  attachLspBridge(server as unknown as import("http").Server);
+
   // Start cron scheduler
   await cronScheduler.loadFromDatabase();
   cronScheduler.start();
@@ -96,6 +101,9 @@ async function main(): Promise<void> {
   // Start hourly drift detection worker
   startDriftDetector();
 
+  // Start periodic extension catalog sync from GitHub
+  startCatalogSync();
+
   // ── Graceful shutdown ──────────────────────────────────────────────────────
 
   async function shutdown(signal: string): Promise<void> {
@@ -108,6 +116,7 @@ async function main(): Promise<void> {
     stopCostWorker();
     stopCatalogWorker();
     stopDriftDetector();
+    stopCatalogSync();
 
     server.close(async () => {
       logger.info("HTTP server closed");

@@ -1,16 +1,16 @@
 import { Terminal } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import type { FleetStats } from "@/types/fleet";
+import { useTerminalStore } from "@/stores/terminal";
 
 interface ActiveSessionsCardProps {
-  stats?: FleetStats;
-  loading?: boolean;
   className?: string;
 }
 
-export function ActiveSessionsCard({ stats, loading, className }: ActiveSessionsCardProps) {
-  const count = stats?.active_sessions ?? 0;
+export function ActiveSessionsCard({ className }: ActiveSessionsCardProps) {
+  // Read directly from the client-side terminal store — shellCards persist
+  // across navigation and accurately reflect what the user has open.
+  const count = useTerminalStore((s) => s.shellCards.length);
   const hasActiveSessions = count > 0;
 
   return (
@@ -32,16 +32,12 @@ export function ActiveSessionsCard({ stats, loading, className }: ActiveSessions
       </CardHeader>
       <CardContent className="flex items-end justify-between">
         <div>
-          {loading ? (
-            <div className="h-8 w-10 bg-muted animate-pulse rounded" />
-          ) : (
-            <div className="text-2xl font-bold tabular-nums">{count}</div>
-          )}
+          <div className="text-2xl font-bold tabular-nums">{count}</div>
           <p className="text-xs text-muted-foreground mt-1">
-            {loading ? "" : hasActiveSessions ? "Shells open across fleet" : "No active shells"}
+            {hasActiveSessions ? "Shells open across fleet" : "No active shells"}
           </p>
         </div>
-        {hasActiveSessions && !loading && (
+        {hasActiveSessions && (
           <div className="flex items-center gap-1">
             <span className="relative flex h-2.5 w-2.5">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />

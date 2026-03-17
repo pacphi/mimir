@@ -23,13 +23,64 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { authenticateUpgrade } from "../websocket/auth.js";
 import { parseEnvelope, makeEnvelope, CHANNEL, MESSAGE_TYPE } from "../websocket/channels.js";
+import type { FsListPayload, FsReadPayload, FsWritePayload } from "../websocket/channels.js";
 import { redis, redisSub, REDIS_CHANNELS, REDIS_KEYS } from "../lib/redis.js";
 import { db } from "../lib/db.js";
 import { logger } from "../lib/logger.js";
 import { ingestLog, ingestBatch } from "../services/logs/index.js";
 import { enqueueMetric } from "../services/metrics/index.js";
+import { listDirectory, readFile, writeFile } from "../services/fs-bridge.js";
+import { closeTerminalSession } from "../services/terminal-sessions.js";
+import type { IPty } from "node-pty";
 type LogLevel = "DEBUG" | "INFO" | "WARN" | "ERROR";
 type LogSource = "AGENT" | "EXTENSION" | "BUILD" | "APP" | "SYSTEM";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Persistent PTY registry — keeps PTYs alive across WebSocket reconnections
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Grace period before a disconnected PTY is killed (5 minutes). */
+const PTY_GRACE_MS = 5 * 60 * 1000;
+
+/** Maximum number of bytes to buffer while disconnected (256 KB). */
+const PTY_BUFFER_MAX = 256 * 1024;
+
+interface PersistentPty {
+  term: IPty;
+  containerName: string;
+  sessionId: string;
+  /** Currently attached WebSocket (null when disconnected). */
+  ws: WebSocket | null;
+  /** Grace timer started on WS disconnect; killed on reconnect. */
+  graceTimer: ReturnType<typeof setTimeout> | null;
+  /** Output buffered while the browser is disconnected. */
+  buffer: string;
+  /** True when the PTY process has exited. */
+  exited: boolean;
+  exitCode: number | null;
+}
+
+const persistentPtys = new Map<string, PersistentPty>();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Agent-bridged PTY registry — proxies browser terminal to Draupnir agent PTY
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface AgentBridgedPty {
+  sessionId: string;
+  instanceId: string;
+  /** Currently attached browser WebSocket (null when disconnected). */
+  ws: WebSocket | null;
+  /** Grace timer started on WS disconnect; killed on reconnect. */
+  graceTimer: ReturnType<typeof setTimeout> | null;
+  /** Output buffered while the browser is disconnected. */
+  buffer: string;
+  /** True when the agent-side PTY has exited/closed. */
+  exited: boolean;
+  exitCode: number | null;
+}
+
+const agentBridgedPtys = new Map<string, AgentBridgedPty>();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Connection registry
@@ -105,13 +156,21 @@ async function processHeartbeat(
     sindri_version?: string;
     /** Phase 3: Rust target triple of the CLI binary */
     cli_target?: string;
+    /** Distro reported by the agent (ubuntu, fedora, opensuse) */
+    distro?: string;
+    /** Extensions currently installed on the instance */
+    extensions?: string[];
   },
 ): Promise<void> {
   try {
-    // Build the instance update — always update status; only update version fields when present
+    // Build the instance update — always update status; only update version/distro fields when present
     const instanceUpdateData: Record<string, unknown> = { updated_at: new Date() };
     if (payload.sindri_version) instanceUpdateData.sindri_version = payload.sindri_version;
     if (payload.cli_target) instanceUpdateData.cli_target = payload.cli_target;
+    if (payload.distro) instanceUpdateData.distro = payload.distro;
+    if (payload.extensions && payload.extensions.length > 0) {
+      instanceUpdateData.extensions = payload.extensions;
+    }
 
     await Promise.all([
       // Persist heartbeat record
@@ -134,8 +193,8 @@ async function processHeartbeat(
         where: { id: instanceId, status: { in: ["ERROR", "UNKNOWN"] } },
         data: { status: "RUNNING", ...instanceUpdateData },
       }),
-      // For already-running instances, still persist the version fields
-      ...(payload.sindri_version || payload.cli_target
+      // For already-running instances, still persist the version/distro fields
+      ...(payload.sindri_version || payload.cli_target || payload.distro
         ? [
             db.instance.updateMany({
               where: { id: instanceId, status: { notIn: ["ERROR", "UNKNOWN"] } },
@@ -171,14 +230,23 @@ async function routeAgentMessage(conn: AgentConnection, raw: string): Promise<vo
       if (type === MESSAGE_TYPE.HEARTBEAT_PING) {
         // Normalize Draupnir's heartbeat payload (uptime_seconds → uptime)
         const hbData = data as Record<string, unknown>;
-        const normalizedHb: Record<string, number> = {};
+        const normalizedHb: Record<string, unknown> = {};
         if (hbData.uptime_seconds != null) normalizedHb.uptime = Number(hbData.uptime_seconds);
         if (hbData.uptime != null) normalizedHb.uptime = Number(hbData.uptime);
         // Pass through any Mimir-native fields
         for (const key of ["cpuPercent", "memoryUsed", "memoryTotal", "diskUsed", "diskTotal"]) {
           if (hbData[key] != null) normalizedHb[key] = Number(hbData[key]);
         }
-        await processHeartbeat(conn.instanceId, normalizedHb);
+        // Pass through string metadata fields
+        if (typeof hbData.sindri_version === "string")
+          normalizedHb.sindri_version = hbData.sindri_version;
+        if (typeof hbData.cli_target === "string") normalizedHb.cli_target = hbData.cli_target;
+        if (typeof hbData.distro === "string") normalizedHb.distro = hbData.distro;
+        if (Array.isArray(hbData.extensions)) normalizedHb.extensions = hbData.extensions;
+        await processHeartbeat(
+          conn.instanceId,
+          normalizedHb as Parameters<typeof processHeartbeat>[1],
+        );
         // Publish to Redis for browser fan-out
         const hbChannel = REDIS_CHANNELS.instanceHeartbeat(conn.instanceId);
         await redis.publish(
@@ -499,14 +567,67 @@ async function routeAgentMessage(conn: AgentConnection, raw: string): Promise<vo
       break;
     }
 
-    case CHANNEL.TERMINAL:
-      // Forward terminal data to browser clients subscribed to this instance
+    case CHANNEL.TERMINAL: {
+      // Route to agent-bridged terminal session if one exists for this sessionId
+      const termSessionId = envelope.correlationId;
+      const bridgedEntry = termSessionId ? agentBridgedPtys.get(termSessionId) : null;
+
+      if (bridgedEntry) {
+        if (type === MESSAGE_TYPE.TERMINAL_DATA) {
+          const termData = data as { session_id?: string; data?: string };
+          // Draupnir sends base64-encoded PTY output — decode to UTF-8 for the browser
+          const decoded = termData.data
+            ? Buffer.from(termData.data, "base64").toString("utf-8")
+            : "";
+
+          if (bridgedEntry.ws?.readyState === WebSocket.OPEN) {
+            bridgedEntry.ws.send(JSON.stringify({ type: "data", data: decoded }));
+          } else {
+            // Buffer output while browser is away (up to max)
+            if (bridgedEntry.buffer.length < PTY_BUFFER_MAX) {
+              bridgedEntry.buffer += decoded;
+              if (bridgedEntry.buffer.length > PTY_BUFFER_MAX) {
+                bridgedEntry.buffer = bridgedEntry.buffer.slice(-PTY_BUFFER_MAX);
+              }
+            }
+          }
+        } else if (type === MESSAGE_TYPE.TERMINAL_CLOSE) {
+          const closeData = data as { exit_code?: number };
+          bridgedEntry.exited = true;
+          bridgedEntry.exitCode = closeData.exit_code ?? null;
+
+          if (bridgedEntry.ws?.readyState === WebSocket.OPEN) {
+            bridgedEntry.ws.send(
+              JSON.stringify({
+                type: "data",
+                data: `\r\n[Process exited${closeData.exit_code != null ? ` with code ${closeData.exit_code}` : ""}]\r\n`,
+              }),
+            );
+            bridgedEntry.ws.close(1000, "Process exited");
+          }
+
+          if (bridgedEntry.graceTimer) {
+            clearTimeout(bridgedEntry.graceTimer);
+            bridgedEntry.graceTimer = null;
+          }
+          agentBridgedPtys.delete(termSessionId!);
+          closeTerminalSession(termSessionId!, "process_exit").catch((err) =>
+            logger.warn(
+              { err, sessionId: termSessionId },
+              "Failed to close bridged terminal session",
+            ),
+          );
+        }
+      }
+
+      // Also fan out to main WS browser subscribers (for any other consumers)
       for (const client of browserConnections) {
         if (client.subscriptions.has(conn.instanceId) && client.ws.readyState === WebSocket.OPEN) {
           client.ws.send(JSON.stringify({ ...envelope, instanceId: conn.instanceId }));
         }
       }
       break;
+    }
 
     case CHANNEL.COMMANDS: {
       // Store command result in Redis so the HTTP route can pick it up.
@@ -658,6 +779,178 @@ async function routeBrowserMessage(conn: BrowserConnection, raw: string): Promis
     }
   }
 
+  // Handle filesystem operations from browser (Shell IDE)
+  if (channel === CHANNEL.FILESYSTEM) {
+    // Look up the instance to get the container name
+    const instance = await db.instance.findUnique({
+      where: { id: instanceId },
+      select: { name: true, provider: true },
+    });
+
+    if (!instance) {
+      conn.ws.send(
+        JSON.stringify(
+          makeEnvelope(
+            CHANNEL.FILESYSTEM,
+            MESSAGE_TYPE.FS_LISTED,
+            {
+              error: "Instance not found",
+              requestId: (envelope.data as { requestId?: string })?.requestId,
+            },
+            { instanceId },
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (instance.provider !== "docker") {
+      conn.ws.send(
+        JSON.stringify(
+          makeEnvelope(
+            CHANNEL.FILESYSTEM,
+            MESSAGE_TYPE.FS_LISTED,
+            {
+              error: `Filesystem operations not yet supported for ${instance.provider} instances`,
+              requestId: (envelope.data as { requestId?: string })?.requestId,
+            },
+            { instanceId },
+          ),
+        ),
+      );
+      return;
+    }
+
+    switch (type) {
+      case MESSAGE_TYPE.FS_LIST: {
+        const payload = envelope.data as FsListPayload;
+        try {
+          const entries = await listDirectory(instance.name, payload.path);
+          conn.ws.send(
+            JSON.stringify(
+              makeEnvelope(
+                CHANNEL.FILESYSTEM,
+                MESSAGE_TYPE.FS_LISTED,
+                {
+                  sessionId: payload.sessionId,
+                  path: payload.path,
+                  requestId: payload.requestId,
+                  entries,
+                },
+                { instanceId },
+              ),
+            ),
+          );
+        } catch (err) {
+          logger.warn({ err, instanceId, path: payload.path }, "fs:list failed");
+          conn.ws.send(
+            JSON.stringify(
+              makeEnvelope(
+                CHANNEL.FILESYSTEM,
+                MESSAGE_TYPE.FS_LISTED,
+                {
+                  sessionId: payload.sessionId,
+                  path: payload.path,
+                  requestId: payload.requestId,
+                  entries: [],
+                  error: err instanceof Error ? err.message : "Failed to list directory",
+                },
+                { instanceId },
+              ),
+            ),
+          );
+        }
+        break;
+      }
+
+      case MESSAGE_TYPE.FS_READ: {
+        const payload = envelope.data as FsReadPayload;
+        try {
+          const result = await readFile(instance.name, payload.path);
+          conn.ws.send(
+            JSON.stringify(
+              makeEnvelope(
+                CHANNEL.FILESYSTEM,
+                MESSAGE_TYPE.FS_READ_RESULT,
+                {
+                  sessionId: payload.sessionId,
+                  path: payload.path,
+                  requestId: payload.requestId,
+                  content: result.content,
+                  encoding: result.encoding,
+                },
+                { instanceId },
+              ),
+            ),
+          );
+        } catch (err) {
+          logger.warn({ err, instanceId, path: payload.path }, "fs:read failed");
+          conn.ws.send(
+            JSON.stringify(
+              makeEnvelope(
+                CHANNEL.FILESYSTEM,
+                MESSAGE_TYPE.FS_READ_RESULT,
+                {
+                  sessionId: payload.sessionId,
+                  path: payload.path,
+                  requestId: payload.requestId,
+                  content: "",
+                  encoding: "utf8" as const,
+                  error: err instanceof Error ? err.message : "Failed to read file",
+                },
+                { instanceId },
+              ),
+            ),
+          );
+        }
+        break;
+      }
+
+      case MESSAGE_TYPE.FS_WRITE: {
+        const payload = envelope.data as FsWritePayload;
+        try {
+          await writeFile(instance.name, payload.path, payload.content);
+          conn.ws.send(
+            JSON.stringify(
+              makeEnvelope(
+                CHANNEL.FILESYSTEM,
+                MESSAGE_TYPE.FS_WRITE_ACK,
+                {
+                  sessionId: payload.sessionId,
+                  path: payload.path,
+                  requestId: payload.requestId,
+                },
+                { instanceId },
+              ),
+            ),
+          );
+        } catch (err) {
+          logger.warn({ err, instanceId, path: payload.path }, "fs:write failed");
+          conn.ws.send(
+            JSON.stringify(
+              makeEnvelope(
+                CHANNEL.FILESYSTEM,
+                MESSAGE_TYPE.FS_WRITE_ACK,
+                {
+                  sessionId: payload.sessionId,
+                  path: payload.path,
+                  requestId: payload.requestId,
+                  error: err instanceof Error ? err.message : "Failed to write file",
+                },
+                { instanceId },
+              ),
+            ),
+          );
+        }
+        break;
+      }
+
+      default:
+        logger.warn({ type, instanceId }, "Unknown filesystem message type");
+    }
+    return;
+  }
+
   // Route to agent via Redis commands channel
   if (channel === CHANNEL.COMMANDS || channel === CHANNEL.TERMINAL) {
     await redis
@@ -740,6 +1033,33 @@ export function attachWebSocketGateway(server: Server): WebSocketServer {
       ws.on("close", async (code, reason) => {
         agentConnections.delete(principal.instanceId!);
         await redis.srem(REDIS_KEYS.activeAgents, principal.instanceId!).catch(() => {});
+
+        // Terminate all agent-bridged terminal sessions for this instance
+        for (const [sid, entry] of agentBridgedPtys) {
+          if (entry.instanceId !== principal.instanceId) continue;
+
+          if (entry.ws?.readyState === WebSocket.OPEN) {
+            entry.ws.send(
+              JSON.stringify({
+                type: "data",
+                data: "\r\n[Agent disconnected]\r\n",
+              }),
+            );
+            entry.ws.close(1001, "Agent disconnected");
+          }
+
+          if (entry.graceTimer) {
+            clearTimeout(entry.graceTimer);
+            entry.graceTimer = null;
+          }
+          agentBridgedPtys.delete(sid);
+          closeTerminalSession(sid, "agent_disconnected").catch((err) =>
+            logger.warn(
+              { err, sessionId: sid },
+              "Failed to close bridged session on agent disconnect",
+            ),
+          );
+        }
 
         // Mark instance as degraded after agent disconnects
         await db.instance
@@ -1015,6 +1335,57 @@ export function attachWebSocketGateway(server: Server): WebSocketServer {
   terminalWss.on("connection", (ws: WebSocket, _req: IncomingMessage, sessionId: string) => {
     logger.info({ sessionId }, "Terminal WebSocket connected");
 
+    // ── Check for an existing Docker PTY we can reattach to ───────────────
+    const existing = persistentPtys.get(sessionId);
+    if (existing && !existing.exited) {
+      logger.info({ sessionId }, "Reattaching to existing PTY");
+
+      if (existing.graceTimer) {
+        clearTimeout(existing.graceTimer);
+        existing.graceTimer = null;
+      }
+
+      existing.ws = ws;
+
+      if (existing.buffer.length > 0) {
+        ws.send(JSON.stringify({ type: "data", data: existing.buffer }));
+        existing.buffer = "";
+      }
+
+      attachWsToPty(ws, existing);
+
+      ws.on("error", (err) => {
+        logger.warn({ err, sessionId }, "Terminal WebSocket error");
+      });
+      return;
+    }
+
+    // ── Check for an existing agent-bridged PTY we can reattach to ────────
+    const existingBridged = agentBridgedPtys.get(sessionId);
+    if (existingBridged && !existingBridged.exited) {
+      logger.info({ sessionId }, "Reattaching to existing agent-bridged PTY");
+
+      if (existingBridged.graceTimer) {
+        clearTimeout(existingBridged.graceTimer);
+        existingBridged.graceTimer = null;
+      }
+
+      existingBridged.ws = ws;
+
+      if (existingBridged.buffer.length > 0) {
+        ws.send(JSON.stringify({ type: "data", data: existingBridged.buffer }));
+        existingBridged.buffer = "";
+      }
+
+      attachWsToAgentBridge(ws, existingBridged);
+
+      ws.on("error", (err) => {
+        logger.warn({ err, sessionId }, "Terminal WebSocket error");
+      });
+      return;
+    }
+
+    // ── No existing PTY — look up session and spawn ───────────────────────
     void db.terminalSession
       .findUnique({ where: { id: sessionId }, select: { instance_id: true } })
       .then(async (session) => {
@@ -1036,13 +1407,7 @@ export function attachWebSocketGateway(server: Server): WebSocketServer {
         if (instance.provider === "docker") {
           spawnDockerTerminal(ws, instance.name, sessionId);
         } else {
-          // For non-Docker instances, send a message and close gracefully
-          ws.send(
-            JSON.stringify({
-              type: "data",
-              data: `\r\nTerminal sessions for ${instance.provider} instances are not yet supported.\r\n`,
-            }),
-          );
+          spawnAgentTerminal(ws, session.instance_id, sessionId);
         }
       })
       .catch((err: unknown) => {
@@ -1054,6 +1419,53 @@ export function attachWebSocketGateway(server: Server): WebSocketServer {
       logger.warn({ err, sessionId }, "Terminal WebSocket error");
     });
   });
+
+  /**
+   * Wire a WebSocket to an existing PersistentPty — browser input → PTY,
+   * and handle WS close with grace period.
+   */
+  function attachWsToPty(ws: WebSocket, entry: PersistentPty) {
+    ws.on("message", (raw) => {
+      const str = Buffer.isBuffer(raw) ? raw.toString("utf-8") : String(raw);
+      try {
+        const msg = JSON.parse(str) as {
+          type: string;
+          data?: string;
+          cols?: number;
+          rows?: number;
+        };
+        if (msg.type === "data" && msg.data) {
+          entry.term.write(msg.data);
+        }
+        if (msg.type === "resize" && msg.cols && msg.rows) {
+          entry.term.resize(msg.cols, msg.rows);
+        }
+      } catch {
+        entry.term.write(str);
+      }
+    });
+
+    ws.on("close", () => {
+      logger.info(
+        { sessionId: entry.sessionId },
+        "Terminal WebSocket disconnected — starting grace period",
+      );
+      entry.ws = null;
+
+      // Start grace timer — kill PTY if nobody reconnects
+      entry.graceTimer = setTimeout(() => {
+        logger.info({ sessionId: entry.sessionId }, "PTY grace period expired, killing");
+        entry.term.kill();
+        persistentPtys.delete(entry.sessionId);
+        closeTerminalSession(entry.sessionId, "grace_timeout").catch((err) =>
+          logger.warn(
+            { err, sessionId: entry.sessionId },
+            "Failed to close terminal session after grace timeout",
+          ),
+        );
+      }, PTY_GRACE_MS);
+    });
+  }
 
   function spawnDockerTerminal(ws: WebSocket, containerName: string, sessionId: string) {
     // Resolve the docker binary — check common locations since node-pty's
@@ -1100,27 +1512,119 @@ export function attachWebSocketGateway(server: Server): WebSocketServer {
 
     logger.info({ sessionId, containerName, pid: term.pid }, "Docker terminal spawned (node-pty)");
 
-    // PTY output → browser
+    // Register in the persistent PTY map
+    const entry: PersistentPty = {
+      term,
+      containerName,
+      sessionId,
+      ws,
+      graceTimer: null,
+      buffer: "",
+      exited: false,
+      exitCode: null,
+    };
+    persistentPtys.set(sessionId, entry);
+
+    // PTY output → browser (or buffer if disconnected)
     term.onData((data: string) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "data", data }));
+      if (entry.ws?.readyState === WebSocket.OPEN) {
+        entry.ws.send(JSON.stringify({ type: "data", data }));
+      } else {
+        // Buffer output while browser is away (up to max)
+        if (entry.buffer.length < PTY_BUFFER_MAX) {
+          entry.buffer += data;
+          if (entry.buffer.length > PTY_BUFFER_MAX) {
+            entry.buffer = entry.buffer.slice(-PTY_BUFFER_MAX);
+          }
+        }
       }
     });
 
     term.onExit(({ exitCode }) => {
       logger.info({ sessionId, exitCode }, "Docker terminal process exited");
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(
+      entry.exited = true;
+      entry.exitCode = exitCode;
+
+      if (entry.ws?.readyState === WebSocket.OPEN) {
+        entry.ws.send(
           JSON.stringify({
             type: "data",
             data: `\r\n[Process exited with code ${exitCode}]\r\n`,
           }),
         );
-        ws.close(1000, "Process exited");
+        entry.ws.close(1000, "Process exited");
       }
+
+      // Clean up: cancel any grace timer, remove from map, close DB session
+      if (entry.graceTimer) {
+        clearTimeout(entry.graceTimer);
+        entry.graceTimer = null;
+      }
+      persistentPtys.delete(sessionId);
+      closeTerminalSession(sessionId, "process_exit").catch((err) =>
+        logger.warn({ err, sessionId }, "Failed to close terminal session on PTY exit"),
+      );
     });
 
-    // Browser input → PTY
+    // Wire browser input → PTY + handle disconnect with grace period
+    attachWsToPty(ws, entry);
+  }
+
+  /**
+   * Spawn a terminal session via the Draupnir agent.
+   * Sends a terminal:create envelope to the agent and bridges the browser WS.
+   */
+  function spawnAgentTerminal(ws: WebSocket, instanceId: string, sessionId: string) {
+    const agentConn = agentConnections.get(instanceId);
+    if (!agentConn || agentConn.ws.readyState !== WebSocket.OPEN) {
+      ws.send(
+        JSON.stringify({
+          type: "data",
+          data: "\r\n[Error: Agent is not connected. Cannot open terminal.]\r\n",
+        }),
+      );
+      ws.close(4503, "Agent offline");
+      return;
+    }
+
+    logger.info({ sessionId, instanceId }, "Spawning agent-bridged terminal");
+
+    // Register in the agent-bridged PTY map BEFORE sending create to agent
+    // (so any fast response will find the entry)
+    const entry: AgentBridgedPty = {
+      sessionId,
+      instanceId,
+      ws,
+      graceTimer: null,
+      buffer: "",
+      exited: false,
+      exitCode: null,
+    };
+    agentBridgedPtys.set(sessionId, entry);
+
+    // Send terminal:create to Draupnir agent
+    agentConn.ws.send(
+      JSON.stringify({
+        protocol_version: "1.0",
+        type: "terminal:create",
+        session_id: sessionId,
+        payload: {
+          session_id: sessionId,
+          cols: 80,
+          rows: 24,
+        },
+      }),
+    );
+
+    // Wire browser input → agent bridge
+    attachWsToAgentBridge(ws, entry);
+  }
+
+  /**
+   * Wire a browser WebSocket to an agent-bridged terminal session.
+   * Translates browser messages into Draupnir envelope format.
+   */
+  function attachWsToAgentBridge(ws: WebSocket, entry: AgentBridgedPty) {
     ws.on("message", (raw) => {
       const str = Buffer.isBuffer(raw) ? raw.toString("utf-8") : String(raw);
       try {
@@ -1130,21 +1634,99 @@ export function attachWebSocketGateway(server: Server): WebSocketServer {
           cols?: number;
           rows?: number;
         };
-        if (msg.type === "data" && msg.data) {
-          term.write(msg.data);
+
+        const agentConn = agentConnections.get(entry.instanceId);
+        if (!agentConn || agentConn.ws.readyState !== WebSocket.OPEN) {
+          return; // Agent went away — output will be handled by disconnect cleanup
         }
+
+        if (msg.type === "data" && msg.data) {
+          // Browser sends plain UTF-8 — encode to base64 for Draupnir
+          const b64 = Buffer.from(msg.data, "utf-8").toString("base64");
+          agentConn.ws.send(
+            JSON.stringify({
+              protocol_version: "1.0",
+              type: "terminal:input",
+              session_id: entry.sessionId,
+              payload: {
+                session_id: entry.sessionId,
+                data: b64,
+              },
+            }),
+          );
+        }
+
         if (msg.type === "resize" && msg.cols && msg.rows) {
-          term.resize(msg.cols, msg.rows);
+          agentConn.ws.send(
+            JSON.stringify({
+              protocol_version: "1.0",
+              type: "terminal:resize",
+              session_id: entry.sessionId,
+              payload: {
+                session_id: entry.sessionId,
+                cols: msg.cols,
+                rows: msg.rows,
+              },
+            }),
+          );
         }
       } catch {
-        // Raw text — send directly
-        term.write(str);
+        // If not JSON, treat as raw terminal input
+        const agentConn = agentConnections.get(entry.instanceId);
+        if (agentConn && agentConn.ws.readyState === WebSocket.OPEN) {
+          const b64 = Buffer.from(str, "utf-8").toString("base64");
+          agentConn.ws.send(
+            JSON.stringify({
+              protocol_version: "1.0",
+              type: "terminal:input",
+              session_id: entry.sessionId,
+              payload: {
+                session_id: entry.sessionId,
+                data: b64,
+              },
+            }),
+          );
+        }
       }
     });
 
     ws.on("close", () => {
-      logger.info({ sessionId }, "Terminal WebSocket disconnected, killing PTY");
-      term.kill();
+      logger.info(
+        { sessionId: entry.sessionId },
+        "Agent-bridged terminal WS disconnected — starting grace period",
+      );
+      entry.ws = null;
+
+      // Start grace timer — close agent PTY if nobody reconnects
+      entry.graceTimer = setTimeout(() => {
+        logger.info(
+          { sessionId: entry.sessionId },
+          "Agent-bridged PTY grace period expired, closing",
+        );
+
+        // Send terminal:close to agent
+        const agentConn = agentConnections.get(entry.instanceId);
+        if (agentConn && agentConn.ws.readyState === WebSocket.OPEN) {
+          agentConn.ws.send(
+            JSON.stringify({
+              protocol_version: "1.0",
+              type: "terminal:close",
+              session_id: entry.sessionId,
+              payload: {
+                session_id: entry.sessionId,
+              },
+            }),
+          );
+        }
+
+        agentBridgedPtys.delete(entry.sessionId);
+        closeTerminalSession(entry.sessionId, "grace_timeout").catch((err) =>
+          logger.warn(
+            { err, sessionId: entry.sessionId },
+            "Failed to close bridged session after grace timeout",
+          ),
+        );
+      }, PTY_GRACE_MS);
     });
   }
 
@@ -1160,5 +1742,6 @@ export function getGatewayStatus() {
     agentCount: agentConnections.size,
     browserClientCount: browserConnections.size,
     connectedAgents: Array.from(agentConnections.keys()),
+    agentBridgedTerminalCount: agentBridgedPtys.size,
   };
 }

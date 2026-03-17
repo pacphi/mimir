@@ -276,7 +276,7 @@ export function validateYamlSecrets(yaml: string): string[] {
  * `deployment:`, inject `image: <SINDRI_DEFAULT_IMAGE>` so the CLI has
  * something to deploy.
  *
- *   Dev default:  sindri:latest  (locally built via `make v3-docker-build-fast`)
+ *   Dev default:  sindri:v3-ubuntu-dev  (locally built via `make v3-docker-build-dev`)
  *   Prod example: ghcr.io/pacphi/sindri:3.1.0
  */
 function resolveSystemSecrets(yaml: string): string {
@@ -285,7 +285,7 @@ function resolveSystemSecrets(yaml: string): string {
   // Inject default image when no explicit image config is present
   const hasImage = /\bimage_config:/m.test(resolved) || /\bimage:/m.test(resolved);
   if (!hasImage) {
-    const defaultImage = process.env.SINDRI_DEFAULT_IMAGE ?? "sindri:latest";
+    const defaultImage = process.env.SINDRI_DEFAULT_IMAGE ?? "sindri:v3-ubuntu-dev";
     // Insert `image: <default>` after the `deployment:` block's `provider:` line
     resolved = resolved.replace(
       /^(deployment:\s*\n\s+provider:\s+.+)$/m,

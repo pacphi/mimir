@@ -914,6 +914,37 @@ async function seedExtensions() {
   );
 }
 
+async function seedCategoryMappings() {
+  console.log("Seeding extension category mappings...");
+
+  const mappings = [
+    { sindri_category: "languages", display_label: "Languages", sort_order: 1 },
+    { sindri_category: "claude", display_label: "AI", sort_order: 2 },
+    { sindri_category: "ai-agents", display_label: "AI", sort_order: 3 },
+    { sindri_category: "ai-dev", display_label: "AI", sort_order: 4 },
+    { sindri_category: "devops", display_label: "Infrastructure", sort_order: 5 },
+    { sindri_category: "cloud", display_label: "Infrastructure", sort_order: 6 },
+    { sindri_category: "mcp", display_label: "MCP Servers", sort_order: 7 },
+    { sindri_category: "testing", display_label: "Testing", sort_order: 8 },
+    { sindri_category: "package-manager", display_label: "Tools", sort_order: 9 },
+    { sindri_category: "productivity", display_label: "Tools", sort_order: 10 },
+    { sindri_category: "documentation", display_label: "Tools", sort_order: 11 },
+    { sindri_category: "desktop", display_label: "Desktop", sort_order: 12 },
+    { sindri_category: "research", display_label: "Research", sort_order: 13 },
+    { sindri_category: "management", display_label: "Management", sort_order: 14 },
+  ];
+
+  for (const m of mappings) {
+    await prisma.extensionCategoryMapping.upsert({
+      where: { sindri_category: m.sindri_category },
+      update: { display_label: m.display_label, sort_order: m.sort_order },
+      create: { ...m, updated_at: new Date() },
+    });
+  }
+
+  console.log(`  Created ${mappings.length} category mappings`);
+}
+
 async function seedSecurityData(instances: Array<{ id: string; status: InstanceStatus }>) {
   console.log("Seeding security data...");
 
@@ -1326,6 +1357,7 @@ async function main() {
   await seedTeams(users, instances);
   await seedAuditLogs(users);
   await seedExtensions();
+  await seedCategoryMappings();
   await seedSecurityData(instances);
   await seedDriftData(instances);
   await seedCostData(instances);

@@ -6,14 +6,20 @@ export interface AppConfig {
   sindriDefaultImage: string;
   sindriImageRegistry: string;
   sindriImageVersion: string;
+  editorFsRoot: string;
+  sindriSupportedDistros: string[];
+  sindriDefaultDistro: string;
 }
 
 const DEFAULTS: AppConfig = {
   authBypass: false,
   nodeEnv: "development",
-  sindriDefaultImage: "sindri:latest",
+  sindriDefaultImage: "sindri:v3-ubuntu-dev",
   sindriImageRegistry: "ghcr.io/pacphi/sindri",
   sindriImageVersion: "latest",
+  editorFsRoot: "/alt/home/developer/workspace",
+  sindriSupportedDistros: ["ubuntu", "fedora", "opensuse"],
+  sindriDefaultDistro: "ubuntu",
 };
 
 export function useAppConfig() {

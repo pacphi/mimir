@@ -23,6 +23,7 @@ export interface Instance {
   name: string;
   provider: string;
   region: string | null;
+  distro?: string;
   extensions: string[];
   configHash: string | null;
   sshEndpoint: string | null;
@@ -45,6 +46,7 @@ export interface InstanceListResponse {
 export interface InstanceFilters {
   provider?: string;
   region?: string;
+  distro?: string;
   status?: InstanceStatus;
   search?: string;
 }

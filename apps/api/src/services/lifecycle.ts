@@ -433,6 +433,7 @@ async function destroyInstanceInfra(instanceName: string, provider: string): Pro
     const minimalYaml = [
       'version: "3.0"',
       `name: ${instanceName}`,
+      "extensions: {}",
       "deployment:",
       `  provider: ${provider}`,
     ].join("\n");
@@ -467,6 +468,7 @@ async function suspendInstanceInfra(instanceName: string, provider: string): Pro
     const minimalYaml = [
       'version: "3.0"',
       `name: ${instanceName}`,
+      "extensions: {}",
       "deployment:",
       `  provider: ${provider}`,
     ].join("\n");
@@ -500,6 +502,7 @@ async function resumeInstanceInfra(instanceName: string, provider: string): Prom
     const minimalYaml = [
       'version: "3.0"',
       `name: ${instanceName}`,
+      "extensions: {}",
       "deployment:",
       `  provider: ${provider}`,
     ].join("\n");

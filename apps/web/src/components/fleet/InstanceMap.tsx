@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { GeoPin } from "@/types/fleet";
-import { Map, NavigationControl } from "react-map-gl/maplibre";
+import { AttributionControl, Map, NavigationControl } from "react-map-gl/maplibre";
 import { MapPins } from "./map/MapPins";
 import { MapLegend } from "./map/MapLegend";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -33,9 +33,11 @@ export function InstanceMap({ pins, loading }: InstanceMapProps) {
               minZoom={1}
               maxZoom={14}
               renderWorldCopies={false}
+              attributionControl={false}
               mapStyle={DARK_STYLE}
               style={{ width: "100%", height: "100%", borderRadius: "0.375rem" }}
             >
+              <AttributionControl compact />
               <NavigationControl position="top-left" />
               <MapPins pins={pins} />
             </Map>

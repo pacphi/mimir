@@ -34,11 +34,23 @@ export default defineConfig({
     sourcemap: true,
     rollupOptions: {
       output: {
-        manualChunks: {
-          react: ["react", "react-dom"],
-          router: ["@tanstack/react-router"],
-          query: ["@tanstack/react-query"],
-          ui: ["@radix-ui/react-dialog", "@radix-ui/react-dropdown-menu", "@radix-ui/react-tabs"],
+        manualChunks(id: string) {
+          if (id.includes("node_modules/react-dom") || id.includes("node_modules/react/")) {
+            return "react";
+          }
+          if (id.includes("@tanstack/react-router")) {
+            return "router";
+          }
+          if (id.includes("@tanstack/react-query")) {
+            return "query";
+          }
+          if (
+            id.includes("@radix-ui/react-dialog") ||
+            id.includes("@radix-ui/react-dropdown-menu") ||
+            id.includes("@radix-ui/react-tabs")
+          ) {
+            return "ui";
+          }
         },
       },
     },

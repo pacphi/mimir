@@ -151,6 +151,12 @@ export function GuidedWizard({ onCancel, cliAvailable = true }: GuidedWizardProp
       // is at least as large as the user-specified volume.
       const effectiveStorageGb = Math.max(storeState.storageGb || 20, storeState.homeDataSizeGb);
 
+      // Extract docker_host from provider options for Docker provider
+      const dockerHost =
+        toApiProvider(storeState.provider) === "docker"
+          ? (storeState.providerOptions.docker_host as string) || undefined
+          : undefined;
+
       const response = await deploymentsApi.create({
         name: storeState.name,
         provider: toApiProvider(storeState.provider),
@@ -159,6 +165,7 @@ export function GuidedWizard({ onCancel, cliAvailable = true }: GuidedWizardProp
         memory_gb: storeState.memoryGb || 4,
         storage_gb: effectiveStorageGb,
         yaml_config: storeState.assembledYaml,
+        docker_host: dockerHost,
         secrets: Object.keys(secretsRecord).length > 0 ? secretsRecord : undefined,
       });
 

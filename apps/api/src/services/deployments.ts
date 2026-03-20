@@ -14,7 +14,7 @@ import type { Deployment } from "@prisma/client";
 import { db } from "../lib/db.js";
 import { redis, REDIS_CHANNELS } from "../lib/redis.js";
 import { logger } from "../lib/logger.js";
-import { runCliCapture, isCliConfigured } from "../lib/cli.js";
+import { runCliCapture, isCliConfigured, ensureInstanceDir } from "../lib/cli.js";
 import { isReservedSecretKey } from "../lib/secret-denylist.js";
 import {
   storeDeploymentSecrets,
@@ -30,6 +30,8 @@ export interface CreateDeploymentInput {
   storage_gb: number;
   yaml_config: string;
   template_id?: string;
+  /** Remote Docker daemon URL (e.g. ssh://user@host, tcp://host:2376) */
+  docker_host?: string;
   secrets?: Record<string, string>;
   initiated_by?: string;
   /** Force recreation — tears down existing container/volumes before deploying */
@@ -468,6 +470,14 @@ async function runProvisioningFlow(
     resolvedSecrets.SINDRI_CONSOLE_URL = consoleUrl;
     if (consoleApiKey) resolvedSecrets.SINDRI_CONSOLE_API_KEY = consoleApiKey;
 
+    // Resolve Docker host: user-supplied → admin default → local daemon.
+    // When set, DOCKER_HOST tells the Sindri CLI (and Docker Compose) to
+    // target a remote Docker daemon instead of the local socket.
+    const effectiveDockerHost = input.docker_host || process.env.DOCKER_HOST_DEFAULT || undefined;
+    if (effectiveDockerHost) {
+      resolvedSecrets.DOCKER_HOST = effectiveDockerHost;
+    }
+
     // ── Resolve or create instance record ───────────────────────────────────
     // Two paths:
     //   1. Redeploy (existingInstanceId set) → update the existing record
@@ -483,6 +493,7 @@ async function runProvisioningFlow(
         data: {
           provider: input.provider,
           region: input.region,
+          docker_host: effectiveDockerHost ?? null,
           extensions: parsedExtensions,
           status: "DEPLOYING",
           updated_at: new Date(),
@@ -533,6 +544,7 @@ async function runProvisioningFlow(
           name: input.name,
           provider: input.provider,
           region: input.region,
+          docker_host: effectiveDockerHost ?? null,
           extensions: parsedExtensions,
           status: "DEPLOYING",
         },
@@ -547,12 +559,21 @@ async function runProvisioningFlow(
     // ── Run sindri deploy ─────────────────────────────────────────────────────
     // Secrets are passed as subprocess env vars — the Sindri CLI reads them
     // directly from the environment (source: env). No temp file on disk.
+    // Each instance gets its own working directory so Docker Compose treats
+    // each deploy as a separate project (preventing orphan removal of other
+    // instances' containers).
     await emitProgress(deploymentId, "Running sindri deploy...", { progress_percent: 40 });
     appendLog("Running sindri deploy...");
 
+    const instanceDir = ensureInstanceDir(input.name);
     const cliArgs = ["deploy", "--config", tmpFile, "--skip-validation"];
     if (input.force) cliArgs.push("--force");
-    const { stdout, stderr } = await runCliCapture(cliArgs, resolvedSecrets);
+    const { stdout, stderr } = await runCliCapture(
+      cliArgs,
+      resolvedSecrets,
+      undefined,
+      instanceDir,
+    );
     if (stdout) appendLog(stdout.trim());
     if (stderr) appendLog(stderr.trim());
 

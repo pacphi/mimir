@@ -88,6 +88,7 @@ export function createApp(): Hono {
         .split(",")
         .map((s) => s.trim()),
       sindriDefaultDistro: process.env.SINDRI_DEFAULT_DISTRO || "ubuntu",
+      dockerHostDefault: process.env.DOCKER_HOST_DEFAULT || "",
     });
   });
 

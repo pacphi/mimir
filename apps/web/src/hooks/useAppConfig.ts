@@ -9,6 +9,7 @@ export interface AppConfig {
   editorFsRoot: string;
   sindriSupportedDistros: string[];
   sindriDefaultDistro: string;
+  dockerHostDefault: string;
 }
 
 const DEFAULTS: AppConfig = {
@@ -20,6 +21,7 @@ const DEFAULTS: AppConfig = {
   editorFsRoot: "/alt/home/developer/workspace",
   sindriSupportedDistros: ["ubuntu", "fedora", "opensuse"],
   sindriDefaultDistro: "ubuntu",
+  dockerHostDefault: "",
 };
 
 export function useAppConfig() {

@@ -46,6 +46,7 @@ export interface FlyOptions {
 }
 
 export interface DockerOptions {
+  docker_host?: string;
   network?: string;
   restart?: "no" | "always" | "on-failure" | "unless-stopped";
   runtime?: string;
@@ -171,7 +172,7 @@ export const PROVIDER_CATALOG: ProviderMeta[] = [
   {
     id: "docker",
     name: "Docker",
-    description: "Local Docker/Docker Compose deployment",
+    description: "Docker deployment (local or remote host)",
     icon: "D",
   },
   { id: "e2b", name: "E2B", description: "E2B cloud sandbox", icon: "E" },
@@ -195,7 +196,7 @@ export const PROVIDER_CATALOG: ProviderMeta[] = [
 /** Providers where region selection is not applicable, with a short explanation */
 export const PROVIDERS_WITHOUT_REGION: Partial<Record<ProviderId, string>> = {
   e2b: "E2B manages sandbox infrastructure automatically. Region selection is only supported for Enterprise accounts with BYOC (Bring Your Own Cloud).",
-  docker: "Docker deploys locally. Region selection is not applicable.",
+  docker: "Docker deploys to a local or remote Docker daemon. Region selection is not applicable.",
   kubernetes:
     "Kubernetes targets your configured cluster context. Region is determined by your kubeconfig, not set here.",
 };

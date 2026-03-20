@@ -14,7 +14,8 @@
 
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { logger } from "./logger.js";
 
 const execFileAsync = promisify(execFile);
@@ -131,22 +132,25 @@ export function getSindriBin(): string {
  * @param args      CLI arguments (e.g. ["deploy", "--config", "/tmp/foo.yaml"])
  * @param env       Optional environment variables merged into process.env
  * @param timeoutMs Override timeout (defaults to SINDRI_CLI_TIMEOUT_MS or 300 000 ms)
+ * @param cwd       Working directory for the subprocess (isolates Docker Compose projects)
  */
 export async function runCliCapture(
   args: string[],
   env?: Record<string, string>,
   timeoutMs?: number,
+  cwd?: string,
 ): Promise<{ stdout: string; stderr: string }> {
   const bin = getSindriBin();
   const effectiveTimeout = timeoutMs ?? parseInt(process.env.SINDRI_CLI_TIMEOUT_MS ?? "300000", 10);
 
-  logger.debug({ bin, args }, "Running sindri CLI (capture)");
+  logger.debug({ bin, args, cwd }, "Running sindri CLI (capture)");
 
   try {
     const { stdout, stderr } = await execFileAsync(bin, args, {
       timeout: effectiveTimeout,
       maxBuffer: 10 * 1024 * 1024,
       env: buildSubprocessEnv(env),
+      cwd,
     });
     return { stdout, stderr };
   } catch (err: unknown) {
@@ -165,6 +169,22 @@ export async function runCliCapture(
     }
     throw err;
   }
+}
+
+/**
+ * Return (and create if needed) a per-instance working directory.
+ *
+ * Each Sindri instance gets its own directory so the CLI-generated
+ * `docker-compose.yml` lives in an isolated folder. Docker Compose derives
+ * its project name from the directory, preventing one deploy from orphaning
+ * containers belonging to a different instance.
+ *
+ * Layout: `<cwd>/instances/<instanceName>/`
+ */
+export function ensureInstanceDir(instanceName: string): string {
+  const dir = join(process.cwd(), "instances", instanceName);
+  mkdirSync(dir, { recursive: true });
+  return dir;
 }
 
 /**

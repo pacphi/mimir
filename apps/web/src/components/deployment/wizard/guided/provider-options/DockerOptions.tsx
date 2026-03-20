@@ -9,10 +9,37 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { ProviderOptionsProps } from ".";
+import { useAppConfig } from "@/hooks/useAppConfig";
 
 export function DockerOptions({ options, onChange }: ProviderOptionsProps) {
+  const { data: appConfig } = useAppConfig();
+  const adminDefault = appConfig?.dockerHostDefault || "";
+
   return (
     <div className="grid grid-cols-2 gap-4">
+      <div className="col-span-2">
+        <Label className="text-xs">Docker Host</Label>
+        <Input
+          className="mt-1 font-mono text-xs"
+          placeholder={adminDefault || "local (same machine as Mimir)"}
+          value={(options.docker_host as string) ?? ""}
+          onChange={(e) => onChange("docker_host", e.target.value || undefined)}
+        />
+        <p className="text-xs text-muted-foreground mt-1">
+          {adminDefault ? (
+            <>
+              Admin default: <code className="text-xs">{adminDefault}</code>. Leave blank to use it,
+              or enter your own remote Docker host.
+            </>
+          ) : (
+            <>
+              Leave blank to deploy on this machine. To target a remote Docker daemon, enter a URL
+              (e.g. <code className="text-xs">ssh://user@host</code> or{" "}
+              <code className="text-xs">tcp://host:2376</code>).
+            </>
+          )}
+        </p>
+      </div>
       <div>
         <Label className="text-xs">Network</Label>
         <Input

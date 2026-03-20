@@ -13,7 +13,7 @@ import { randomUUID } from "crypto";
 import { writeFile, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isCliConfigured, runCliCapture } from "../lib/cli.js";
+import { isCliConfigured, runCliCapture, ensureInstanceDir } from "../lib/cli.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Input types
@@ -96,7 +96,7 @@ export async function suspendInstance(id: string): Promise<Instance | null> {
   }
 
   // Stop the underlying infrastructure
-  await suspendInstanceInfra(existing.name, existing.provider);
+  await suspendInstanceInfra(existing.name, existing.provider, existing.docker_host);
 
   const instance = await db.instance.update({
     where: { id },
@@ -134,7 +134,7 @@ export async function resumeInstance(id: string): Promise<Instance | null> {
   }
 
   // Start the underlying infrastructure before marking as RUNNING
-  await resumeInstanceInfra(existing.name, existing.provider);
+  await resumeInstanceInfra(existing.name, existing.provider, existing.docker_host);
 
   const previousStatus = existing.status;
   const instance = await db.instance.update({
@@ -206,7 +206,11 @@ export async function destroyInstance(
     finalStatus = "STOPPED";
   } else {
     // Full destroy — tear down infrastructure
-    infraTornDown = await destroyInstanceInfra(existing.name, existing.provider);
+    infraTornDown = await destroyInstanceInfra(
+      existing.name,
+      existing.provider,
+      existing.docker_host,
+    );
 
     if (!infraTornDown) {
       // Leave in DESTROYING state so the user can see it failed and retry
@@ -419,7 +423,11 @@ export async function bulkInstanceAction(input: BulkActionInput): Promise<BulkAc
  * Returns `true` if infrastructure was torn down, `false` if it failed.
  * Throws if the Sindri CLI is not configured at all.
  */
-async function destroyInstanceInfra(instanceName: string, provider: string): Promise<boolean> {
+async function destroyInstanceInfra(
+  instanceName: string,
+  provider: string,
+  dockerHost?: string | null,
+): Promise<boolean> {
   if (!isCliConfigured()) {
     logger.error(
       { instanceName, provider },
@@ -441,7 +449,14 @@ async function destroyInstanceInfra(instanceName: string, provider: string): Pro
     tmpFile = join(tmpdir(), `sindri-destroy-${instanceName}-${Date.now()}.yaml`);
     await writeFile(tmpFile, minimalYaml, "utf-8");
 
-    const { stdout, stderr } = await runCliCapture(["destroy", "--force", "--config", tmpFile]);
+    const instanceDir = ensureInstanceDir(instanceName);
+    const env = dockerHost ? { DOCKER_HOST: dockerHost } : undefined;
+    const { stdout, stderr } = await runCliCapture(
+      ["destroy", "--force", "--config", tmpFile],
+      env,
+      undefined,
+      instanceDir,
+    );
     logger.info({ instanceName, provider, stdout, stderr }, "Instance destroyed via Sindri CLI");
     return true;
   } catch (err) {
@@ -456,7 +471,11 @@ async function destroyInstanceInfra(instanceName: string, provider: string): Pro
  * Suspend (stop) the instance's infrastructure via `sindri stop`.
  * Throws if the CLI is not configured or the command fails.
  */
-async function suspendInstanceInfra(instanceName: string, provider: string): Promise<void> {
+async function suspendInstanceInfra(
+  instanceName: string,
+  provider: string,
+  dockerHost?: string | null,
+): Promise<void> {
   if (!isCliConfigured()) {
     throw new Error(
       `Sindri CLI not configured — cannot stop '${instanceName}'. Set SINDRI_BIN_PATH or install @sindri/cli.`,
@@ -476,7 +495,9 @@ async function suspendInstanceInfra(instanceName: string, provider: string): Pro
     tmpFile = join(tmpdir(), `sindri-stop-${instanceName}-${Date.now()}.yaml`);
     await writeFile(tmpFile, minimalYaml, "utf-8");
 
-    await runCliCapture(["stop", "--config", tmpFile]);
+    const instanceDir = ensureInstanceDir(instanceName);
+    const env = dockerHost ? { DOCKER_HOST: dockerHost } : undefined;
+    await runCliCapture(["stop", "--config", tmpFile], env, undefined, instanceDir);
     logger.info({ instanceName, provider }, "Instance stopped via Sindri CLI");
   } catch (err) {
     logger.error({ err, instanceName, provider }, "Sindri CLI stop failed");
@@ -490,7 +511,11 @@ async function suspendInstanceInfra(instanceName: string, provider: string): Pro
  * Resume (start) the instance's infrastructure via `sindri start`.
  * Throws if the CLI is not configured or the command fails.
  */
-async function resumeInstanceInfra(instanceName: string, provider: string): Promise<void> {
+async function resumeInstanceInfra(
+  instanceName: string,
+  provider: string,
+  dockerHost?: string | null,
+): Promise<void> {
   if (!isCliConfigured()) {
     throw new Error(
       `Sindri CLI not configured — cannot start '${instanceName}'. Set SINDRI_BIN_PATH or install @sindri/cli.`,
@@ -510,7 +535,9 @@ async function resumeInstanceInfra(instanceName: string, provider: string): Prom
     tmpFile = join(tmpdir(), `sindri-start-${instanceName}-${Date.now()}.yaml`);
     await writeFile(tmpFile, minimalYaml, "utf-8");
 
-    await runCliCapture(["start", "--config", tmpFile]);
+    const instanceDir = ensureInstanceDir(instanceName);
+    const env = dockerHost ? { DOCKER_HOST: dockerHost } : undefined;
+    await runCliCapture(["start", "--config", tmpFile], env, undefined, instanceDir);
     logger.info({ instanceName, provider }, "Instance started via Sindri CLI");
   } catch (err) {
     logger.error({ err, instanceName, provider }, "Sindri CLI start failed");

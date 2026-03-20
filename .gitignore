@@ -38,6 +38,8 @@ apps/api/src/generated/
 
 # Docker Compose (local dev overrides)
 apps/api/docker-compose.yml
+# Per-instance working directories (CLI-generated docker-compose files)
+apps/api/instances/
 
 # Secrets
 *.pem

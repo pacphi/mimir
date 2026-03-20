@@ -78,6 +78,7 @@ export interface CreateDeploymentRequest {
   storage_gb?: number;
   yaml_config: string;
   template_id?: string;
+  docker_host?: string;
   secrets?: Record<string, string>;
 }
 

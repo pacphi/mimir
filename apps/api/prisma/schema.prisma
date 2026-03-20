@@ -160,6 +160,7 @@ model Instance {
   extensions   String[]       // List of installed extension names
   config_hash  String?        // SHA256 of sindri.yaml at deploy time
   ssh_endpoint String?        // SSH connection string (host:port)
+  docker_host  String?        // Remote Docker daemon URL (e.g. ssh://user@host, tcp://host:2376)
   distro       String?        // "ubuntu", "fedora", "opensuse" — populated from agent registration
   status       InstanceStatus @default(UNKNOWN)
   team_id      String?        // optional team workspace assignment

@@ -36,6 +36,7 @@ const CreateDeploymentSchema = z.object({
   storage_gb: z.number().positive().default(20),
   yaml_config: z.string().max(65536),
   template_id: z.string().max(128).optional(),
+  docker_host: z.string().max(256).optional(),
   secrets: z
     .record(z.string(), z.string())
     .optional()

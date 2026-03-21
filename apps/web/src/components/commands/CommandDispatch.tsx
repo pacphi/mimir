@@ -352,8 +352,10 @@ export function CommandDispatch() {
       {/* History tab */}
       {activeTab === "history" && <CommandHistory />}
 
-      {/* Shells tab */}
-      {activeTab === "shells" && <ShellsTab instances={instances} />}
+      {/* Shells tab — always mounted so terminals survive tab switches */}
+      <div className={activeTab === "shells" ? "" : "hidden"}>
+        <ShellsTab instances={instances} />
+      </div>
     </div>
   );
 }

@@ -80,16 +80,22 @@ export function Terminal({
 
     xterm.open(containerRef.current);
 
-    // Try WebGL renderer, fall back to canvas
-    try {
-      const webglAddon = new WebglAddon();
-      webglAddon.onContextLoss(() => {
-        webglAddon.dispose();
-      });
-      xterm.loadAddon(webglAddon);
-    } catch {
-      // WebGL not available; canvas renderer is used as fallback
+    // Try WebGL renderer, fall back to canvas.
+    // Keep a ref so we can recreate after context loss.
+    function attachWebgl(term: XTerm) {
+      try {
+        const addon = new WebglAddon();
+        addon.onContextLoss(() => {
+          addon.dispose();
+          // Schedule re-attach on next frame so the GL context can recover
+          requestAnimationFrame(() => attachWebgl(term));
+        });
+        term.loadAddon(addon);
+      } catch {
+        // WebGL not available; canvas renderer is used as fallback
+      }
     }
+    attachWebgl(xterm);
 
     fitAddon.fit();
 
@@ -128,6 +134,30 @@ export function Terminal({
       resizeObserver.disconnect();
       window.removeEventListener("resize", handleResize);
     };
+  }, []);
+
+  // Re-fit terminal when it becomes visible again (e.g. after tab switch).
+  // ResizeObserver doesn't fire when display goes from hidden→visible without
+  // a dimension change, so we use IntersectionObserver as a visibility trigger.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            fitAddonRef.current?.fit();
+            // Also nudge xterm to refresh its renderer
+            xtermRef.current?.refresh(0, xtermRef.current.rows - 1);
+          }
+        }
+      },
+      { threshold: 0.1 },
+    );
+    observer.observe(el);
+
+    return () => observer.disconnect();
   }, []);
 
   // Connect WebSocket once both sessionId and the xterm instance are ready

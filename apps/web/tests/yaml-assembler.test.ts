@@ -118,3 +118,120 @@ describe("assembleYaml extensions block", () => {
     expect(yaml).toContain("auto_install: true");
   });
 });
+
+describe("assembleYaml dev-mode image resolution", () => {
+  const DEV_DEFAULTS: AssemblerInput["imageDefaults"] = {
+    registry: "ghcr.io/pacphi/sindri",
+    version: "latest",
+    defaultImage: "sindri:v3-ubuntu-dev",
+    isDev: true,
+  };
+
+  it("docker (local provider) dev mode → bare local dev image", () => {
+    const yaml = assembleYaml({
+      ...BASE_INPUT,
+      provider: "docker",
+      imageDefaults: DEV_DEFAULTS,
+    });
+
+    // Docker uses the locally-built dev image
+    expect(yaml).toContain("image: sindri:v3-ubuntu-dev");
+    expect(yaml).not.toContain("image_config:");
+  });
+
+  it("docker dev mode respects distro in bare image name", () => {
+    const yaml = assembleYaml({
+      ...BASE_INPUT,
+      provider: "docker",
+      distro: "fedora",
+      imageDefaults: DEV_DEFAULTS,
+    });
+
+    expect(yaml).toContain("image: sindri:v3-fedora-dev");
+  });
+
+  it("fly (cloud provider) dev mode → image_config with registry + distro-aware tag", () => {
+    const yaml = assembleYaml({
+      ...BASE_INPUT,
+      provider: "fly",
+      imageDefaults: DEV_DEFAULTS,
+    });
+
+    // Cloud providers use image_config with GHCR registry
+    expect(yaml).toContain("image_config:");
+    expect(yaml).toContain("registry: ghcr.io/pacphi/sindri");
+    // Ubuntu is the unsuffixed default
+    expect(yaml).toContain("tag_override: latest");
+    expect(yaml).not.toMatch(/^\s+image: sindri:/m);
+  });
+
+  it("fly dev mode + fedora → distro-suffixed tag_override", () => {
+    const yaml = assembleYaml({
+      ...BASE_INPUT,
+      provider: "fly",
+      distro: "fedora",
+      imageDefaults: DEV_DEFAULTS,
+    });
+
+    expect(yaml).toContain("tag_override: latest-fedora");
+  });
+
+  it("fly dev mode + opensuse → distro-suffixed tag_override", () => {
+    const yaml = assembleYaml({
+      ...BASE_INPUT,
+      provider: "fly",
+      distro: "opensuse",
+      imageDefaults: DEV_DEFAULTS,
+    });
+
+    expect(yaml).toContain("tag_override: latest-opensuse");
+  });
+
+  it("devpod (cloud provider) dev mode → image_config from registry", () => {
+    const yaml = assembleYaml({
+      ...BASE_INPUT,
+      provider: "devpod-aws",
+      imageDefaults: DEV_DEFAULTS,
+    });
+
+    expect(yaml).toContain("image_config:");
+    expect(yaml).toContain("registry: ghcr.io/pacphi/sindri");
+    expect(yaml).toContain("tag_override: latest");
+    expect(yaml).not.toMatch(/^\s+image: sindri:/m);
+  });
+
+  it("explicit imageConfig overrides dev defaults for any provider", () => {
+    const yaml = assembleYaml({
+      ...BASE_INPUT,
+      provider: "fly",
+      imageDefaults: DEV_DEFAULTS,
+      imageConfig: { registry: "custom.registry.io/sindri", version: "3.1.0" },
+    });
+
+    expect(yaml).toContain("image_config:");
+    expect(yaml).toContain("registry: custom.registry.io/sindri");
+    expect(yaml).toContain("version: 3.1.0");
+    expect(yaml).not.toContain("tag_override:");
+  });
+
+  it("prod mode ubuntu → unsuffixed tag_override", () => {
+    const yaml = assembleYaml({
+      ...BASE_INPUT,
+      provider: "fly",
+      distro: "ubuntu",
+    });
+
+    expect(yaml).toContain("tag_override: latest");
+    expect(yaml).not.toContain("latest-ubuntu");
+  });
+
+  it("prod mode fedora → distro-suffixed tag_override", () => {
+    const yaml = assembleYaml({
+      ...BASE_INPUT,
+      provider: "fly",
+      distro: "fedora",
+    });
+
+    expect(yaml).toContain("tag_override: latest-fedora");
+  });
+});

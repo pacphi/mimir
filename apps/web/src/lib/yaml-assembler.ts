@@ -5,6 +5,13 @@
 import type { ProviderId } from "@/types/provider-options";
 import { toApiProvider, toDevpodBackend } from "@/types/provider-options";
 
+/**
+ * Providers that run on the local machine and can access the local Docker
+ * daemon's image cache. All other providers are "cloud" — they require a
+ * registry-accessible image because there is no local daemon.
+ */
+const LOCAL_PROVIDERS = new Set(["docker"]);
+
 export type SindriDistro = "ubuntu" | "fedora" | "opensuse";
 
 export interface ImageConfig {
@@ -133,9 +140,11 @@ export function assembleYaml(input: AssemblerInput): string {
   lines.push(`  provider: ${apiProvider}`);
   lines.push(`  distro: ${input.distro}`);
 
-  // Image config — always emit so the YAML is self-contained and portable.
-  // In dev mode, default to a local image (deployment.image: sindri:latest).
-  // In production, default to registry-based image_config.
+  // Image config — provider-aware to ensure portability:
+  //   1. Explicit user config → always honoured
+  //   2. Dev mode + local provider (docker) → bare local dev image
+  //   3. Everything else (prod, or dev + cloud provider) → image_config
+  //      with GHCR registry so cloud providers can pull the image
   const img = input.imageConfig;
   const imgDefaults = input.imageDefaults;
   const hasExplicitImage =
@@ -162,20 +171,25 @@ export function assembleYaml(input: AssemblerInput): string {
     if (img.pullPolicy) lines.push(`    pull_policy: ${img.pullPolicy}`);
     if (img.verifySignature) lines.push("    verify_signature: true");
     if (img.verifyProvenance) lines.push("    verify_provenance: true");
-  } else if (imgDefaults.isDev) {
-    // Dev mode — use local dev image (built via `make v3-docker-build-dev`)
-    // Derive distro-specific image from the configured SINDRI_DEFAULT_IMAGE
+  } else if (imgDefaults.isDev && LOCAL_PROVIDERS.has(apiProvider)) {
+    // Dev mode + local provider (docker): use bare local dev image.
+    // Built locally via `make v3-docker-build-dev`.
     const devImage = imgDefaults.defaultImage.replace(
       /-(ubuntu|fedora|opensuse)-/,
       `-${input.distro}-`,
     );
     lines.push(`  image: ${devImage}`);
   } else {
-    // Production — use registry-based image_config with defaults
-    // CLI resolves distro-specific tags from deployment.distro
+    // Production / cloud-dev — use registry-based image_config.
+    // The CLI's resolve_image() does NOT append distro to the tag, so we
+    // must pick the correct distro-aware floating tag ourselves.
+    // GHCR convention: unsuffixed = ubuntu, others get `-{distro}` suffix.
+    //   e.g.  3 (ubuntu), 3-fedora, 3-opensuse
     lines.push("  image_config:");
     lines.push(`    registry: ${yamlValue(imgDefaults.registry)}`);
-    lines.push(`    version: ${yamlValue(imgDefaults.version)}`);
+    const floatingTag =
+      input.distro === "ubuntu" ? imgDefaults.version : `${imgDefaults.version}-${input.distro}`;
+    lines.push(`    tag_override: ${yamlValue(floatingTag)}`);
   }
 
   // Resources

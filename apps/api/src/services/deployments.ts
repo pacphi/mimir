@@ -271,15 +271,20 @@ export function validateYamlSecrets(yaml: string): string[] {
 }
 
 /**
+ * Providers that run against the local Docker daemon and can access its
+ * image cache. All other providers require a registry-accessible image.
+ */
+const LOCAL_PROVIDERS = new Set(["docker"]);
+
+/**
  * B4: Resolve console placeholders, inject system secrets, and ensure
  * an image reference exists.
  *
  * When the YAML contains neither `image_config:` nor `image:` under
- * `deployment:`, inject `image: <SINDRI_DEFAULT_IMAGE>` so the CLI has
- * something to deploy.
- *
- *   Dev default:  sindri:v3-ubuntu-dev  (locally built via `make v3-docker-build-dev`)
- *   Prod example: ghcr.io/pacphi/sindri:3.1.0
+ * `deployment:`, inject an appropriate default:
+ *   - Local providers (docker): `image: <SINDRI_DEFAULT_IMAGE>` (bare local image)
+ *   - Cloud providers (fly, …): `image_config:` with GHCR registry so the
+ *     provider can pull the image from a registry it can reach.
  */
 function resolveSystemSecrets(yaml: string): string {
   let resolved = resolveConsolePlaceholders(yaml);
@@ -287,12 +292,32 @@ function resolveSystemSecrets(yaml: string): string {
   // Inject default image when no explicit image config is present
   const hasImage = /\bimage_config:/m.test(resolved) || /\bimage:/m.test(resolved);
   if (!hasImage) {
-    const defaultImage = process.env.SINDRI_DEFAULT_IMAGE ?? "sindri:v3-ubuntu-dev";
-    // Insert `image: <default>` after the `deployment:` block's `provider:` line
-    resolved = resolved.replace(
-      /^(deployment:\s*\n\s+provider:\s+.+)$/m,
-      `$1\n  image: ${defaultImage}`,
-    );
+    // Detect provider from the YAML
+    const providerMatch = resolved.match(/^\s+provider:\s+(\S+)/m);
+    const provider = providerMatch?.[1] ?? "docker";
+
+    if (LOCAL_PROVIDERS.has(provider)) {
+      // Local provider — bare image name works (local daemon cache)
+      const defaultImage = process.env.SINDRI_DEFAULT_IMAGE ?? "sindri:v3-ubuntu-dev";
+      resolved = resolved.replace(
+        /^(deployment:\s*\n\s+provider:\s+.+)$/m,
+        `$1\n  image: ${defaultImage}`,
+      );
+    } else {
+      // Cloud provider — must use image_config with a registry.
+      // The CLI's resolve_image() does NOT append distro to the tag, so we
+      // pick the correct distro-aware floating tag here.
+      // GHCR convention: unsuffixed = ubuntu, others get `-{distro}` suffix.
+      const registry = process.env.SINDRI_IMAGE_REGISTRY ?? "ghcr.io/pacphi/sindri";
+      const version = process.env.SINDRI_IMAGE_VERSION ?? "latest";
+      const distroMatch = resolved.match(/^\s+distro:\s+(\S+)/m);
+      const distro = distroMatch?.[1] ?? "ubuntu";
+      const tag = distro === "ubuntu" ? version : `${version}-${distro}`;
+      resolved = resolved.replace(
+        /^(deployment:\s*\n\s+provider:\s+.+)$/m,
+        `$1\n  image_config:\n    registry: ${registry}\n    tag_override: ${tag}`,
+      );
+    }
   }
 
   // Inject SINDRI_CONSOLE_URL and SINDRI_CONSOLE_API_KEY into the secrets block

@@ -3,7 +3,7 @@
 **Supporting Sindri v3 Multi-Linux Distribution Images**
 
 > Companion to: [sindri-v3-naming-makefile-addendum.md](https://github.com/pacphi/sindri/blob/main/v3/docs/planning/active/sindri-v3-naming-makefile-addendum.md)
-> Version 1.0 · March 2026
+> Version 1.1 · March 2026
 
 ---
 
@@ -34,37 +34,51 @@
 
 Sindri v3 is adding multi-Linux distribution support. The container registry will carry three distinct image variants:
 
-| Distro                 | Base                                        | Default?                          |
-| ---------------------- | ------------------------------------------- | --------------------------------- |
-| **Ubuntu 24.04**       | `sindri:3.x.x` / `sindri:latest`            | Yes (backward-compatible default) |
-| **Fedora 41**          | `sindri:3.x.x-fedora` / `sindri:fedora`     | No                                |
-| **openSUSE Leap 15.6** | `sindri:3.x.x-opensuse` / `sindri:opensuse` | No                                |
+| Distro                 | Base                                               | Default?                          |
+| ---------------------- | -------------------------------------------------- | --------------------------------- |
+| **Ubuntu 24.04**       | `sindri:3.x.x` / `sindri:latest`                   | Yes (backward-compatible default) |
+| **Fedora 41**          | `sindri:3.x.x-fedora` / `sindri:latest-fedora`     | No                                |
+| **openSUSE Leap 15.6** | `sindri:3.x.x-opensuse` / `sindri:latest-opensuse` | No                                |
 
 The Sindri naming plan is fully backward-compatible: unqualified tags (`latest`, `v3`, semver without suffix) continue to resolve to Ubuntu. Mimir will continue to work without changes, but to **expose distro selection as a first-class feature**, the updates below are required.
 
 ### Key Sindri Naming Conventions
 
-| Context           | Ubuntu (default)         | Fedora                   | openSUSE                   |
-| ----------------- | ------------------------ | ------------------------ | -------------------------- |
-| Versioned release | `3.1.0` / `3.1.0-ubuntu` | `3.1.0-fedora`           | `3.1.0-opensuse`           |
-| Floating alias    | `latest` / `ubuntu`      | `fedora`                 | `opensuse`                 |
-| Local dev build   | `sindri:v3-ubuntu-local` | `sindri:v3-fedora-local` | `sindri:v3-opensuse-local` |
-| CI build          | `v3-ci-<sha>-ubuntu`     | `v3-ci-<sha>-fedora`     | `v3-ci-<sha>-opensuse`     |
+| Context           | Ubuntu (default)           | Fedora                 | openSUSE                 |
+| ----------------- | -------------------------- | ---------------------- | ------------------------ |
+| Versioned release | `3.1.0` / `3.1.0-ubuntu`   | `3.1.0-fedora`         | `3.1.0-opensuse`         |
+| Floating major    | `3` / `3-ubuntu`           | `3-fedora`             | `3-opensuse`             |
+| Floating minor    | `3.1` / `3.1-ubuntu`       | `3.1-fedora`           | `3.1-opensuse`           |
+| Latest alias      | `latest` / `latest-ubuntu` | `latest-fedora`        | `latest-opensuse`        |
+| Distro-only alias | `ubuntu`                   | `fedora`               | `opensuse`               |
+| Local dev build   | `sindri:v3-ubuntu-dev`     | `sindri:v3-fedora-dev` | `sindri:v3-opensuse-dev` |
+| CI build          | `v3-ci-<sha>-ubuntu`       | `v3-ci-<sha>-fedora`   | `v3-ci-<sha>-opensuse`   |
+
+> **Note:** Per-distro `latest-{distro}` tags were added to the Sindri release workflow in March 2026. The bare `latest` tag remains ubuntu-only for backward compatibility.
 
 ---
 
 ## 2 Current State
 
-Mimir is **distro-agnostic**. There is no concept of Linux distribution anywhere in the codebase:
+Mimir has **Phase 1 distro support implemented** (as of March 2026). The following are in place:
 
-- **Wizard Step 2** (`Step2ImageVolumes.tsx`) — Users configure registry, version/tag, digest, pull policy. No distro field.
-- **Wizard Store** (`deploymentWizardStore.ts`) — `imageConfig` has `registry`, `version`, `tagOverride`, `digest`, `pullPolicy`. No distro.
-- **YAML Assembler** (`yaml-assembler.ts`) — Emits `image_config.version` or `deployment.image` directly. No distro-aware tag computation.
-- **API Config** (`app.ts:78-85`) — Exposes `SINDRI_DEFAULT_IMAGE` (`"sindri:latest"`), `SINDRI_IMAGE_REGISTRY` (`"ghcr.io/pacphi/sindri"`), `SINDRI_IMAGE_VERSION` (`"latest"`). No distro.
-- **API Deployment Service** (`deployments.ts:288`) — Injects `image: sindri:latest` when YAML has no image. No distro awareness.
+- **Wizard Step 2** (`Step2ImageVolumes.tsx`) — Distro selector (ubuntu/fedora/opensuse) above the image config fields.
+- **Wizard Store** (`deploymentWizardStore.ts`) — `distro` field with `setDistro()` action, defaults to `"ubuntu"`.
+- **YAML Assembler** (`yaml-assembler.ts`) — **Provider-aware, distro-aware** image resolution:
+  - Dev mode + Docker (local provider): bare local dev image (`sindri:v3-{distro}-dev`)
+  - All other cases (prod, dev + cloud providers): `image_config` with GHCR registry + distro-aware `tag_override` (`latest` for ubuntu, `latest-{distro}` for others)
+  - The CLI's `resolve_image()` does NOT append distro suffixes, so Mimir computes the full tag.
+- **API Config** (`app.ts`) — Exposes `sindriSupportedDistros`, `sindriDefaultDistro`, plus existing image env vars.
+- **API Deployment Service** (`deployments.ts`) — **Provider-aware** default image injection:
+  - Local providers (docker): bare `image: sindri:v3-{distro}-dev`
+  - Cloud providers (fly, etc.): `image_config` with GHCR registry + distro-aware `tag_override`
+- **useAppConfig Hook** (`useAppConfig.ts`) — `AppConfig` includes `sindriSupportedDistros` and `sindriDefaultDistro`.
+
+**Not yet implemented (Phase 2/3):**
+
 - **Protocol** (`packages/protocol/src/index.ts`) — `RegistrationPayload` has `os` and `arch` but no `distro`.
 - **Prisma Schema** — `Instance` model has no distro field.
-- **useAppConfig Hook** (`useAppConfig.ts`) — `AppConfig` has no distro fields.
+- **Fleet UI** — No distro column/filter in instance list.
 
 ---
 
@@ -212,117 +226,47 @@ const DISTRO_META: Record<string, { label: string; description: string }> = {
 
 ### 4.4 YAML Assembler — Distro-Aware Tag Computation
 
+> **Status:** ✅ Implemented (March 2026)
+
 **File:** `apps/web/src/lib/yaml-assembler.ts`
 
-**Changes to `AssemblerInput`:**
+`AssemblerInput` includes `distro: SindriDistro` and the assembler is both **provider-aware** and **distro-aware**. Image resolution follows three branches:
+
+1. **Explicit user config** → user-supplied `image_config` fields are honoured as-is
+2. **Dev mode + local provider (docker)** → bare local dev image: `sindri:v3-{distro}-dev`
+3. **Everything else (prod, or dev + cloud provider)** → `image_config` with GHCR registry + distro-aware `tag_override`
+
+The `LOCAL_PROVIDERS` set (`"docker"`) determines which path is taken. Cloud providers (fly, runpod, devpod, etc.) cannot access local Docker images, so they always use `image_config`.
+
+**Distro tag computation** for the `image_config` path:
 
 ```typescript
-export interface AssemblerInput {
-  // ... existing fields ...
-  distro: SindriDistro; // ← new
-}
+// Ubuntu uses the base version tag (e.g. "latest")
+// Non-ubuntu uses the distro-suffixed form (e.g. "latest-fedora")
+const floatingTag =
+  input.distro === "ubuntu" ? imgDefaults.version : `${imgDefaults.version}-${input.distro}`;
+lines.push(`    tag_override: ${yamlValue(floatingTag)}`);
 ```
 
-**Changes to `assembleYaml()`:**
+This works because the Sindri release workflow publishes `latest-{distro}` tags for all distros, while the bare `latest` tag remains ubuntu-only for backward compatibility.
 
-The tag computation logic must account for distro. The key rules from the Sindri naming convention:
-
-1. **Ubuntu is the default** — unqualified tags (`latest`, `3.1.0`) resolve to Ubuntu
-2. **Non-Ubuntu distros require a suffix** — `3.1.0-fedora`, `fedora`, etc.
-3. **Dev mode local images** use `sindri:v3-<distro>-local` naming
-
-```typescript
-// Helper: compute the effective image tag for a distro
-function distroTag(version: string, distro: SindriDistro): string {
-  if (distro === "ubuntu") return version; // "latest" or "3.1.0"
-  return `${version}-${distro}`; // "latest-fedora" → wait, use alias
-}
-
-// Helper: compute dev-mode local image name
-function devLocalImage(distro: SindriDistro): string {
-  return `sindri:v3-${distro}-local`;
-}
-```
-
-**Updated image rendering in `assembleYaml()`:**
-
-```typescript
-if (hasExplicitImage) {
-  lines.push("  image_config:");
-  lines.push(`    registry: ${yamlValue(img.registry || imgDefaults.registry)}`);
-  if (img.tagOverride) {
-    // Power-user override — use as-is
-    lines.push(`    tag_override: ${yamlValue(img.tagOverride)}`);
-  } else if (img.digest) {
-    lines.push(`    digest: ${yamlValue(img.digest)}`);
-  } else {
-    // Compute distro-aware version tag
-    const baseVersion = img.version || imgDefaults.version;
-    const effectiveVersion =
-      input.distro === "ubuntu" ? baseVersion : `${baseVersion}-${input.distro}`;
-    lines.push(`    version: ${yamlValue(effectiveVersion)}`);
-  }
-  if (img.pullPolicy) lines.push(`    pull_policy: ${img.pullPolicy}`);
-  if (img.verifySignature) lines.push("    verify_signature: true");
-  if (img.verifyProvenance) lines.push("    verify_provenance: true");
-} else if (imgDefaults.isDev) {
-  // Dev mode — use distro-specific local image
-  lines.push(`  image: sindri:v3-${input.distro}-local`);
-} else {
-  // Production defaults — distro-aware
-  lines.push("  image_config:");
-  lines.push(`    registry: ${yamlValue(imgDefaults.registry)}`);
-  const effectiveVersion =
-    input.distro === "ubuntu" ? imgDefaults.version : `${imgDefaults.version}-${input.distro}`;
-  lines.push(`    version: ${yamlValue(effectiveVersion)}`);
-}
-```
-
-**Edge case — floating aliases:** When `version` is `"latest"` and distro is `fedora`, the correct tag is `fedora` (not `latest-fedora`). Similarly, when `version` is a semver like `3.1.0`, the correct tag is `3.1.0-fedora`. The logic above handles semver correctly but needs a special case for the `"latest"` alias:
-
-```typescript
-function computeDistroVersion(baseVersion: string, distro: SindriDistro): string {
-  if (distro === "ubuntu") return baseVersion;
-  // "latest" → use short distro alias; semver → append suffix
-  if (baseVersion === "latest") return distro; // "fedora", "opensuse"
-  return `${baseVersion}-${distro}`; // "3.1.0-fedora"
-}
-```
+**Why `tag_override` instead of `version`:** The CLI's `resolve_image()` semver resolver filters out distro-suffixed tags (since `3.1.0-fedora` parses as a semver prerelease). Using `tag_override` bypasses the resolver and uses the tag directly.
 
 ---
 
 ### 4.5 API Deployment Service — Default Image Injection
 
-**File:** `apps/api/src/services/deployments.ts` (around line 288)
+> **Status:** ✅ Implemented (March 2026) — Option A with provider awareness
 
-**Current behavior:** When YAML has no `image_config:` or `image:`, injects `image: sindri:latest`.
+**File:** `apps/api/src/services/deployments.ts`
 
-**New behavior:** Must be distro-aware. Two approaches:
+The `resolveSystemSecrets()` function is the backend safety net that injects a default image when the YAML has neither `image_config:` nor `image:`. It is now **provider-aware** and **distro-aware**:
 
-**Option A — Parse distro from YAML (recommended):**
-If the YAML assembler embeds a distro-specific tag already, the current fallback logic just needs to handle the dev-mode case:
+1. **Parses `provider:` and `distro:` from the YAML**
+2. **Local providers (docker):** Injects bare `image: <SINDRI_DEFAULT_IMAGE>` (local daemon cache)
+3. **Cloud providers (fly, etc.):** Injects `image_config:` with GHCR registry + distro-aware `tag_override` (ubuntu → `latest`, fedora → `latest-fedora`, opensuse → `latest-opensuse`)
 
-```typescript
-const defaultImage = process.env.SINDRI_DEFAULT_IMAGE ?? "sindri:latest";
-// The YAML from the wizard already contains distro-aware tags.
-// This fallback only fires for expert-mode YAML or API calls with no image.
-// Default remains Ubuntu (backward-compatible).
-```
-
-No change needed if the wizard always emits an image. But for API-only deployments (no wizard), add a `distro` parameter to the deployment API:
-
-**Option B — Accept distro in deployment request:**
-
-```typescript
-// POST /api/v1/deployments body gains optional `distro` field
-const distro = body.distro ?? process.env.SINDRI_DEFAULT_DISTRO ?? "ubuntu";
-const defaultImage =
-  distro === "ubuntu"
-    ? (process.env.SINDRI_DEFAULT_IMAGE ?? "sindri:latest")
-    : `sindri:v3-${distro}-local`; // dev mode
-```
-
-**Recommendation:** Option A for now — the wizard handles it. Add Option B later if the API needs standalone distro support.
+This safety net only fires for expert-mode YAML or API calls that omit image config. The wizard always emits image config, so it rarely triggers in practice.
 
 ---
 
@@ -451,14 +395,14 @@ Image:         ghcr.io/pacphi/sindri:3.1.0-fedora
 
 ## 6 Open Questions
 
-| #   | Question                                                                                                                            | Impact                                                                           | Owner                    |
-| --- | ----------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------ |
-| 1   | Does Sindri YAML v3.0 support a native `distro` field (e.g., `deployment.distro: fedora`), or is distro selection purely tag-based? | Determines YAML assembler approach — emit `distro:` field vs. compute tag suffix | Sindri                   |
-| 2   | Will the Sindri agent report `distro` in its registration payload?                                                                  | Determines whether Mimir can auto-populate the Instance.distro field             | Sindri                   |
-| 3   | Should the `POST /api/v1/deployments` API accept a `distro` parameter for API-only callers (no wizard)?                             | Affects API route schema and deployment service                                  | Mimir                    |
-| 4   | Should distro selection appear in the Expert mode YAML editor as a helper/hint?                                                     | UX decision                                                                      | Mimir                    |
-| 5   | Should the `latest` + non-ubuntu combination use the short alias (`fedora`) or the suffixed form (`latest-fedora`)?                 | Affects tag computation in YAML assembler                                        | Sindri naming convention |
-| 6   | Are distro-specific extensions or profiles planned? (e.g., extensions that only work on Fedora)                                     | Could affect Step 3 filtering                                                    | Sindri                   |
+| #   | Question                                                                                                                            | Impact                                                                           | Status / Owner                                                                                                                                          |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Does Sindri YAML v3.0 support a native `distro` field (e.g., `deployment.distro: fedora`), or is distro selection purely tag-based? | Determines YAML assembler approach — emit `distro:` field vs. compute tag suffix | ✅ Resolved — Sindri supports `deployment.distro` field. Mimir emits it.                                                                                |
+| 2   | Will the Sindri agent report `distro` in its registration payload?                                                                  | Determines whether Mimir can auto-populate the Instance.distro field             | Open — Sindri                                                                                                                                           |
+| 3   | Should the `POST /api/v1/deployments` API accept a `distro` parameter for API-only callers (no wizard)?                             | Affects API route schema and deployment service                                  | Open — Mimir                                                                                                                                            |
+| 4   | Should distro selection appear in the Expert mode YAML editor as a helper/hint?                                                     | UX decision                                                                      | Open — Mimir                                                                                                                                            |
+| 5   | Should the `latest` + non-ubuntu combination use the short alias (`fedora`) or the suffixed form (`latest-fedora`)?                 | Affects tag computation in YAML assembler                                        | ✅ Resolved — uses `latest-{distro}` (e.g., `latest-fedora`). Per-distro latest tags added to Sindri release workflow (`release-v3.yml`) in March 2026. |
+| 6   | Are distro-specific extensions or profiles planned? (e.g., extensions that only work on Fedora)                                     | Could affect Step 3 filtering                                                    | Open — Sindri                                                                                                                                           |
 
 ---
 
@@ -468,16 +412,16 @@ Image:         ghcr.io/pacphi/sindri:3.1.0-fedora
 
 These changes are required for users to select a distro in the Guided Wizard:
 
-| Step | Task                                                  | File(s)                                        | Est. |
-| ---- | ----------------------------------------------------- | ---------------------------------------------- | ---- |
-| 1    | Add distro env vars to API config endpoint            | `apps/api/src/app.ts`                          | S    |
-| 2    | Update `AppConfig` type and defaults                  | `apps/web/src/hooks/useAppConfig.ts`           | S    |
-| 3    | Add `distro` to wizard store state + actions          | `apps/web/src/stores/deploymentWizardStore.ts` | S    |
-| 4    | Add distro selector UI in Step 2                      | `apps/web/.../Step2ImageVolumes.tsx`           | M    |
-| 5    | Update YAML assembler with distro-aware tag logic     | `apps/web/src/lib/yaml-assembler.ts`           | M    |
-| 6    | Update API deployment service default image injection | `apps/api/src/services/deployments.ts`         | S    |
-| 7    | Update Step 7 review to show distro summary           | `apps/web/.../Step7Review.tsx`                 | S    |
-| 8    | Add/update YAML assembler tests                       | `apps/web/src/lib/__tests__/`                  | M    |
+| Step | Task                                                  | File(s)                                        | Status  |
+| ---- | ----------------------------------------------------- | ---------------------------------------------- | ------- |
+| 1    | Add distro env vars to API config endpoint            | `apps/api/src/app.ts`                          | ✅ Done |
+| 2    | Update `AppConfig` type and defaults                  | `apps/web/src/hooks/useAppConfig.ts`           | ✅ Done |
+| 3    | Add `distro` to wizard store state + actions          | `apps/web/src/stores/deploymentWizardStore.ts` | ✅ Done |
+| 4    | Add distro selector UI in Step 2                      | `apps/web/.../Step2ImageVolumes.tsx`           | ✅ Done |
+| 5    | Update YAML assembler with distro-aware tag logic     | `apps/web/src/lib/yaml-assembler.ts`           | ✅ Done |
+| 6    | Update API deployment service default image injection | `apps/api/src/services/deployments.ts`         | ✅ Done |
+| 7    | Update Step 7 review to show distro summary           | `apps/web/.../Step7Review.tsx`                 | ✅ Done |
+| 8    | Add/update YAML assembler tests                       | `apps/web/tests/yaml-assembler.test.ts`        | ✅ Done |
 
 ### Phase 2 — Fleet Visibility (P1)
 
@@ -505,14 +449,16 @@ _Size: S = small (< 1 hour), M = medium (1–3 hours)_
 
 ### Unit Tests
 
-- **YAML assembler** — Test all distro + version combinations:
-  - `ubuntu` + `latest` → `latest`
-  - `fedora` + `latest` → `fedora`
-  - `opensuse` + `3.1.0` → `3.1.0-opensuse`
-  - `ubuntu` + `3.1.0` → `3.1.0`
+- **YAML assembler** — Test all distro + provider + version combinations:
+  - `ubuntu` + `latest` → `tag_override: latest`
+  - `fedora` + `latest` → `tag_override: latest-fedora`
+  - `opensuse` + `latest` → `tag_override: latest-opensuse`
+  - `ubuntu` + `3.1.0` → `tag_override: 3.1.0`
+  - `fedora` + `3.1.0` → `tag_override: 3.1.0-fedora`
   - Tag override takes precedence over distro
   - Digest takes precedence over version
-  - Dev mode: `ubuntu` → `sindri:v3-ubuntu-local`, `fedora` → `sindri:v3-fedora-local`
+  - Dev mode + Docker: `ubuntu` → `sindri:v3-ubuntu-dev`, `fedora` → `sindri:v3-fedora-dev`
+  - Dev mode + cloud (fly): ubuntu → `image_config` with `tag_override: latest`, fedora → `tag_override: latest-fedora`
 
 - **Wizard store** — `setDistro()` updates state, `reset()` returns to `"ubuntu"`
 
@@ -532,4 +478,4 @@ _Size: S = small (< 1 hour), M = medium (1–3 hours)_
 
 ---
 
-_Mimir Multi-Distro Support Plan · v1.0 · March 2026_
+_Mimir Multi-Distro Support Plan · v1.1 · March 2026_

@@ -454,20 +454,34 @@ instanceMetrics.get("/:id/extensions", rateLimitDefault, async (c) => {
           name: string;
           version: string;
           status: string;
-          status_time: string;
+          status_datetime: string;
         }>;
 
-        const extensionStatuses = statusData.map((ext) => ({
-          name: ext.name,
-          status:
-            ext.status === "installed"
-              ? ("healthy" as const)
-              : ext.status === "installing"
-                ? ("installing" as const)
-                : ("error" as const),
-          version: ext.version,
-          lastChecked: ext.status_time || instance.updated_at.toISOString(),
-        }));
+        // Threshold for considering an "installing" extension as stalled.
+        // If the status hasn't changed in this many minutes, it's likely stuck.
+        const STALE_INSTALL_THRESHOLD_MS = 15 * 60 * 1000; // 15 minutes
+
+        const extensionStatuses = statusData.map((ext) => {
+          const statusTime = ext.status_datetime || instance.updated_at.toISOString();
+          let status: "healthy" | "degraded" | "installing" | "stalled" | "error" | "unknown";
+
+          if (ext.status === "installed") {
+            status = "healthy";
+          } else if (ext.status === "installing") {
+            // Detect stalled installations — if "installing" for too long, mark as stalled
+            const elapsed = Date.now() - new Date(statusTime).getTime();
+            status = elapsed > STALE_INSTALL_THRESHOLD_MS ? "stalled" : "installing";
+          } else {
+            status = "error";
+          }
+
+          return {
+            name: ext.name,
+            status,
+            version: ext.version,
+            lastChecked: statusTime,
+          };
+        });
 
         return c.json({
           instanceId: id,

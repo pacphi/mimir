@@ -28,6 +28,8 @@ function StatusIcon({ status }: { status: ExtensionStatusEntry["status"] }) {
       return <AlertCircle className="h-4 w-4 text-amber-500" />;
     case "installing":
       return <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />;
+    case "stalled":
+      return <AlertCircle className="h-4 w-4 text-orange-500" />;
     case "error":
       return <XCircle className="h-4 w-4 text-red-500" />;
     default:
@@ -43,6 +45,8 @@ function statusLabel(status: ExtensionStatusEntry["status"]): string {
       return "Degraded";
     case "installing":
       return "Installing";
+    case "stalled":
+      return "Stalled";
     case "error":
       return "Error";
     default:
@@ -137,6 +141,7 @@ export function ExtensionHealth({ instanceId, className }: ExtensionHealthProps)
                         ext.status === "healthy" && "text-emerald-600 dark:text-emerald-400",
                         ext.status === "degraded" && "text-amber-600 dark:text-amber-400",
                         ext.status === "installing" && "text-blue-600 dark:text-blue-400",
+                        ext.status === "stalled" && "text-orange-600 dark:text-orange-400",
                         ext.status === "error" && "text-red-600 dark:text-red-400",
                         ext.status === "unknown" && "text-muted-foreground",
                       )}

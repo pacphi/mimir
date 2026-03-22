@@ -25,6 +25,7 @@
     "postinstall": "chmod +x ../../node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true"
   },
   "dependencies": {
+    "@aws-sdk/client-pricing": "^3.1014.0",
     "@hono/node-server": "^1.19.11",
     "@prisma/adapter-pg": "^7.5.0",
     "@prisma/client": "^7.5.0",

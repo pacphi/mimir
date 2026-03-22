@@ -35,6 +35,32 @@ export function E2bOptions({ options, onChange }: ProviderOptionsProps) {
         />
       </div>
       <div>
+        <Label className="text-xs">Metadata (key=value, comma-separated)</Label>
+        <Input
+          className="mt-1 font-mono text-xs"
+          placeholder="team=ai-research, purpose=sandbox"
+          value={
+            options.metadata
+              ? Object.entries(options.metadata as Record<string, string>)
+                  .map(([k, v]) => `${k}=${v}`)
+                  .join(", ")
+              : ""
+          }
+          onChange={(e) => {
+            if (!e.target.value) {
+              onChange("metadata", undefined);
+              return;
+            }
+            const parsed: Record<string, string> = {};
+            for (const pair of e.target.value.split(",").map((s) => s.trim())) {
+              const [k, ...rest] = pair.split("=");
+              if (k && rest.length > 0) parsed[k.trim()] = rest.join("=").trim();
+            }
+            onChange("metadata", Object.keys(parsed).length > 0 ? parsed : undefined);
+          }}
+        />
+      </div>
+      <div>
         <Label className="text-xs">Allowed Domains (comma-separated)</Label>
         <Input
           className="mt-1 font-mono text-xs"

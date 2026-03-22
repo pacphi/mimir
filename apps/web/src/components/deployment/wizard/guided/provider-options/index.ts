@@ -5,6 +5,7 @@ import { DockerOptions } from "./DockerOptions";
 import { DevpodAwsOptions } from "./DevpodAwsOptions";
 import { DevpodGcpOptions } from "./DevpodGcpOptions";
 import { DevpodAzureOptions } from "./DevpodAzureOptions";
+import { DevpodDigitaloceanOptions } from "./DevpodDigitaloceanOptions";
 import { E2bOptions } from "./E2bOptions";
 import { RunpodOptions } from "./RunpodOptions";
 import { NorthflankOptions } from "./NorthflankOptions";
@@ -24,7 +25,7 @@ export const providerOptionsComponents: Partial<
   "devpod-aws": DevpodAwsOptions,
   "devpod-gcp": DevpodGcpOptions,
   "devpod-azure": DevpodAzureOptions,
-  // devpod-digitalocean has no extra options
+  "devpod-digitalocean": DevpodDigitaloceanOptions,
   e2b: E2bOptions,
   runpod: RunpodOptions,
   northflank: NorthflankOptions,

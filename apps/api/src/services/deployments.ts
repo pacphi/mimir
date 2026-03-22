@@ -20,6 +20,7 @@ import {
   storeDeploymentSecrets,
   resolveDeploymentSecrets,
 } from "../services/drift/secrets.service.js";
+import { resolveAuthorizedKeys } from "./ssh-keys.service.js";
 
 export interface CreateDeploymentInput {
   name: string;
@@ -129,6 +130,15 @@ function parseSecretNamesFromYaml(yaml: string): string[] {
     }
   }
   return names;
+}
+
+/**
+ * Extract the `distro:` value from the deployment YAML.
+ * Returns null if not specified.
+ */
+function parseDistroFromYaml(yaml: string): string | null {
+  const match = yaml.match(/^\s+distro:\s+(\S+)/m);
+  return match?.[1] ?? null;
 }
 
 /**
@@ -320,24 +330,25 @@ function resolveSystemSecrets(yaml: string): string {
     }
   }
 
-  // Inject SINDRI_CONSOLE_URL and SINDRI_CONSOLE_API_KEY into the secrets block
-  // so the Sindri CLI passes them as container env vars. Draupnir reads these
-  // from the environment to connect back to Mimir.
-  const consoleSecrets = [
+  // Inject platform-managed secrets into the secrets block so the Sindri CLI
+  // passes them as container env vars.
+  const platformSecrets = [
     "  - name: SINDRI_CONSOLE_URL",
     "    source: env",
     "  - name: SINDRI_CONSOLE_API_KEY",
     "    source: env",
     "  - name: SINDRI_INSTANCE_ID",
     "    source: env",
+    "  - name: AUTHORIZED_KEYS",
+    "    source: env",
   ].join("\n");
 
   if (/^secrets:/m.test(resolved)) {
     // Append to existing secrets block
-    resolved = resolved.replace(/^(secrets:)/m, `$1\n${consoleSecrets}`);
+    resolved = resolved.replace(/^(secrets:)/m, `$1\n${platformSecrets}`);
   } else {
     // Create new secrets block
-    resolved = resolved.trimEnd() + "\n\nsecrets:\n" + consoleSecrets + "\n";
+    resolved = resolved.trimEnd() + "\n\nsecrets:\n" + platformSecrets + "\n";
   }
 
   return resolved;
@@ -495,6 +506,13 @@ async function runProvisioningFlow(
     resolvedSecrets.SINDRI_CONSOLE_URL = consoleUrl;
     if (consoleApiKey) resolvedSecrets.SINDRI_CONSOLE_API_KEY = consoleApiKey;
 
+    // Auto-resolve AUTHORIZED_KEYS for SSH access.
+    // Priority: env var → server's ~/.ssh/id_ed25519.pub → ~/.ssh/id_rsa.pub
+    if (!resolvedSecrets.AUTHORIZED_KEYS) {
+      const sshKey = await resolveAuthorizedKeys();
+      if (sshKey) resolvedSecrets.AUTHORIZED_KEYS = sshKey;
+    }
+
     // Resolve Docker host: user-supplied → admin default → local daemon.
     // When set, DOCKER_HOST tells the Sindri CLI (and Docker Compose) to
     // target a remote Docker daemon instead of the local socket.
@@ -508,6 +526,7 @@ async function runProvisioningFlow(
     //   1. Redeploy (existingInstanceId set) → update the existing record
     //   2. New deploy → create a fresh record (old DESTROYED/ERROR preserved)
     const parsedExtensions = ensureDraupnir(parseExtensionsFromYaml(resolvedYaml));
+    const deployDistro = parseDistroFromYaml(resolvedYaml);
 
     let instance: { id: string; name: string };
 
@@ -518,6 +537,7 @@ async function runProvisioningFlow(
         data: {
           provider: input.provider,
           region: input.region,
+          distro: deployDistro,
           docker_host: effectiveDockerHost ?? null,
           extensions: parsedExtensions,
           status: "DEPLOYING",
@@ -569,6 +589,7 @@ async function runProvisioningFlow(
           name: input.name,
           provider: input.provider,
           region: input.region,
+          distro: deployDistro,
           docker_host: effectiveDockerHost ?? null,
           extensions: parsedExtensions,
           status: "DEPLOYING",
@@ -577,6 +598,18 @@ async function runProvisioningFlow(
     }
 
     createdInstanceId = instance.id;
+
+    // Link the deployment to the instance immediately so the config route
+    // can return the full YAML even while the deploy is still running or
+    // if it fails later.
+    await db.deployment
+      .update({
+        where: { id: deploymentId },
+        data: { instance_id: instance.id },
+      })
+      .catch((dbErr: unknown) =>
+        logger.warn({ dbErr, deploymentId }, "Failed to link deployment to instance"),
+      );
 
     // Pass the Mimir-assigned instance ID so Draupnir can identify itself
     resolvedSecrets.SINDRI_INSTANCE_ID = instance.id;

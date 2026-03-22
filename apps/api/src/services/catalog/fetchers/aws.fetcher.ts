@@ -1,48 +1,41 @@
 /**
  * AWS EC2 compute catalog fetcher.
  *
- * Uses the public AWS bulk pricing endpoint, parameterized by region.
- * Returns null if the API is unavailable.
+ * Uses the AWS Pricing API (GetProducts) with server-side filters to fetch
+ * only the instance types we care about. This is MUCH faster than the bulk
+ * pricing file (~KB vs ~400MB).
+ *
+ * Requires AWS credentials: PRICING_AWS_ACCESS_KEY_ID / PRICING_AWS_SECRET_ACCESS_KEY,
+ * or standard AWS credential chain (instance role, ~/.aws/credentials, etc.).
  */
 
+import { PricingClient, GetProductsCommand } from "@aws-sdk/client-pricing";
 import { logger } from "../../../lib/logger.js";
+import { resolveProviderKey } from "../../../lib/credential-resolver.js";
 import type { CatalogFetcherConfig, ComputeCatalog, ComputeSize } from "../types.js";
 
+// ─── Instance allowlist & specs ──────────────────────────────────────────────
+
 /**
- * Map our canonical region IDs to AWS region names.
- * AWS regions in PROVIDERS already use AWS naming, so this is mostly pass-through.
+ * Latest-gen instance type prefixes per compute family.
+ * Only the newest generation for each family — keeps the catalog focused.
+ *
+ * Burstable:       t3a / t3      (latest x86; t4g is ARM-only)
+ * General purpose: m7i / m7a
+ * Compute:         c7i / c7a
+ * Memory:          r7i / r7a
+ * GPU:             g6
+ * HPC GPU:         p5
  */
-const AWS_REGION_MAP: Record<string, string> = {
-  "us-east-1": "us-east-1",
-  "us-east-2": "us-east-2",
-  "us-west-1": "us-west-1",
-  "us-west-2": "us-west-2",
-  "eu-west-1": "eu-west-1",
-  "eu-west-2": "eu-west-2",
-  "eu-central-1": "eu-central-1",
-  "ap-southeast-1": "ap-southeast-1",
-  "ap-northeast-1": "ap-northeast-1",
-  "sa-east-1": "sa-east-1",
-};
-
-function awsPricingUrl(region: string): string {
-  const awsRegion = AWS_REGION_MAP[region] ?? region;
-  return `https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonEC2/current/${awsRegion}/index.json`;
-}
-
-/** Latest-gen instance type prefixes to include. */
 const INSTANCE_ALLOWLIST = [
   "t3a.",
   "t3.",
   "m7i.",
   "m7a.",
-  "m6i.",
   "c7i.",
   "c7a.",
-  "c6i.",
   "r7i.",
   "r7a.",
-  "r6i.",
   "g6.",
   "p5.",
 ];
@@ -67,27 +60,18 @@ const INSTANCE_SPECS: Record<string, { vcpus: number; memory_gb: number }> = {
   "m7a.large": { vcpus: 2, memory_gb: 8 },
   "m7a.xlarge": { vcpus: 4, memory_gb: 16 },
   "m7a.2xlarge": { vcpus: 8, memory_gb: 32 },
-  "m6i.large": { vcpus: 2, memory_gb: 8 },
-  "m6i.xlarge": { vcpus: 4, memory_gb: 16 },
-  "m6i.2xlarge": { vcpus: 8, memory_gb: 32 },
   "c7i.large": { vcpus: 2, memory_gb: 4 },
   "c7i.xlarge": { vcpus: 4, memory_gb: 8 },
   "c7i.2xlarge": { vcpus: 8, memory_gb: 16 },
   "c7a.large": { vcpus: 2, memory_gb: 4 },
   "c7a.xlarge": { vcpus: 4, memory_gb: 8 },
   "c7a.2xlarge": { vcpus: 8, memory_gb: 16 },
-  "c6i.large": { vcpus: 2, memory_gb: 4 },
-  "c6i.xlarge": { vcpus: 4, memory_gb: 8 },
-  "c6i.2xlarge": { vcpus: 8, memory_gb: 16 },
   "r7i.large": { vcpus: 2, memory_gb: 16 },
   "r7i.xlarge": { vcpus: 4, memory_gb: 32 },
   "r7i.2xlarge": { vcpus: 8, memory_gb: 64 },
   "r7a.large": { vcpus: 2, memory_gb: 16 },
   "r7a.xlarge": { vcpus: 4, memory_gb: 32 },
   "r7a.2xlarge": { vcpus: 8, memory_gb: 64 },
-  "r6i.large": { vcpus: 2, memory_gb: 16 },
-  "r6i.xlarge": { vcpus: 4, memory_gb: 32 },
-  "r6i.2xlarge": { vcpus: 8, memory_gb: 64 },
   "g6.xlarge": { vcpus: 4, memory_gb: 16 },
   "g6.2xlarge": { vcpus: 8, memory_gb: 32 },
   "p5.48xlarge": { vcpus: 192, memory_gb: 2048 },
@@ -97,25 +81,109 @@ function isAllowlisted(instanceType: string): boolean {
   return INSTANCE_ALLOWLIST.some((prefix) => instanceType.startsWith(prefix));
 }
 
-interface AwsPricingProduct {
-  attributes: {
-    instanceType?: string;
-    tenancy?: string;
-    operatingSystem?: string;
-    currentGeneration?: string;
-    capacitystatus?: string;
+// ─── Pricing API client ──────────────────────────────────────────────────────
+
+/**
+ * Create an authenticated PricingClient.
+ * The Pricing API is only available in us-east-1 and ap-south-1.
+ */
+async function createPricingClient(config: CatalogFetcherConfig): Promise<PricingClient | null> {
+  const accessKeyId = config.api_key_env ? await resolveProviderKey(config.api_key_env) : undefined;
+  const secretAccessKey = config.secret_key_env
+    ? await resolveProviderKey(config.secret_key_env)
+    : undefined;
+
+  // If explicit credentials are provided, use them
+  if (accessKeyId && secretAccessKey) {
+    return new PricingClient({
+      region: "us-east-1",
+      credentials: { accessKeyId, secretAccessKey },
+    });
+  }
+
+  // Fall back to default credential chain (instance role, env vars, etc.)
+  try {
+    return new PricingClient({ region: "us-east-1" });
+  } catch {
+    return null;
+  }
+}
+
+// ─── Product parsing ─────────────────────────────────────────────────────────
+
+interface ProductAttributes {
+  instanceType?: string;
+  vcpu?: string;
+  memory?: string;
+  tenancy?: string;
+  operatingSystem?: string;
+  currentGeneration?: string;
+  capacitystatus?: string;
+}
+
+interface PriceDimension {
+  pricePerUnit: { USD?: string };
+  unit: string;
+}
+
+interface PricingTerm {
+  priceDimensions: Record<string, PriceDimension>;
+}
+
+interface ProductDocument {
+  product: { attributes: ProductAttributes };
+  terms: { OnDemand?: Record<string, PricingTerm> };
+}
+
+function parseProduct(jsonStr: string, targetRegion: string): ComputeSize | null {
+  let doc: ProductDocument;
+  try {
+    doc = JSON.parse(jsonStr) as ProductDocument;
+  } catch {
+    return null;
+  }
+
+  const attrs = doc.product.attributes;
+  const instanceType = attrs.instanceType;
+  if (!instanceType || !isAllowlisted(instanceType)) return null;
+
+  // Extract pricing from OnDemand terms
+  const onDemand = doc.terms?.OnDemand;
+  if (!onDemand) return null;
+
+  const firstTerm = Object.values(onDemand)[0];
+  if (!firstTerm) return null;
+
+  const dim = Object.values(firstTerm.priceDimensions)[0];
+  if (!dim || dim.unit !== "Hrs") return null;
+
+  const pricePerHour = parseFloat(dim.pricePerUnit.USD ?? "0");
+  if (isNaN(pricePerHour) || pricePerHour === 0) return null;
+
+  // Use our known specs, or parse from attributes
+  const specs = INSTANCE_SPECS[instanceType];
+  const vcpus = specs?.vcpus ?? parseInt(attrs.vcpu ?? "0", 10);
+  const memoryStr = (attrs.memory ?? "0").replace(/[^\d.]/g, "");
+  const memoryGb = specs?.memory_gb ?? parseFloat(memoryStr);
+
+  const isGpu = instanceType.startsWith("g6.") || instanceType.startsWith("p5.");
+
+  return {
+    id: instanceType,
+    name: instanceType,
+    provider: "aws",
+    category: isGpu ? "gpu" : "cpu",
+    vcpus,
+    memory_gb: memoryGb,
+    storage_gb: 0,
+    price_per_hour: pricePerHour,
+    price_per_month: Math.round(pricePerHour * 730 * 100) / 100,
+    price_source: "api",
+    regions: [targetRegion],
   };
 }
 
-interface AwsPricingTerm {
-  priceDimensions: Record<
-    string,
-    {
-      pricePerUnit: { USD: string };
-      unit: string;
-    }
-  >;
-}
+// ─── Public API ──────────────────────────────────────────────────────────────
 
 export async function fetchAwsCatalog(
   config: CatalogFetcherConfig,
@@ -123,82 +191,56 @@ export async function fetchAwsCatalog(
 ): Promise<ComputeCatalog | null> {
   const targetRegion = region ?? "us-east-1";
 
+  const client = await createPricingClient(config);
+  if (!client) {
+    logger.warn("No AWS credentials available for Pricing API");
+    return null;
+  }
+
   try {
-    const res = await fetch(awsPricingUrl(targetRegion), {
-      signal: AbortSignal.timeout(30_000),
-    });
-
-    if (!res.ok) {
-      logger.warn({ status: res.status, region: targetRegion }, "AWS pricing API returned non-OK");
-      return null;
-    }
-
-    const body = (await res.json()) as {
-      products?: Record<string, AwsPricingProduct>;
-      terms?: { OnDemand?: Record<string, Record<string, AwsPricingTerm>> };
-    };
-
-    if (!body.products || !body.terms?.OnDemand) {
-      logger.warn({ region: targetRegion }, "AWS pricing response missing expected fields");
-      return null;
-    }
+    logger.info({ region: targetRegion }, "AWS catalog fetch starting (Pricing API)");
 
     const sizes: ComputeSize[] = [];
     const seen = new Set<string>();
+    let nextToken: string | undefined;
 
-    for (const [sku, product] of Object.entries(body.products)) {
-      const attrs = product.attributes;
-      const instanceType = attrs.instanceType;
-      if (
-        !instanceType ||
-        seen.has(instanceType) ||
-        !isAllowlisted(instanceType) ||
-        attrs.tenancy !== "Shared" ||
-        attrs.operatingSystem !== "Linux" ||
-        attrs.currentGeneration !== "Yes" ||
-        attrs.capacitystatus !== "Used"
-      ) {
-        continue;
-      }
-
-      const termData = body.terms.OnDemand[sku];
-      if (!termData) continue;
-
-      const firstTerm = Object.values(termData)[0];
-      if (!firstTerm) continue;
-
-      const dim = Object.values(firstTerm.priceDimensions)[0];
-      if (!dim || dim.unit !== "Hrs") continue;
-
-      const pricePerHour = parseFloat(dim.pricePerUnit.USD);
-      if (isNaN(pricePerHour) || pricePerHour === 0) continue;
-
-      const specs = INSTANCE_SPECS[instanceType];
-      const isGpu = instanceType.startsWith("g6.") || instanceType.startsWith("p5.");
-
-      sizes.push({
-        id: instanceType,
-        name: instanceType,
-        provider: "aws",
-        category: isGpu ? "gpu" : "cpu",
-        vcpus: specs?.vcpus ?? 0,
-        memory_gb: specs?.memory_gb ?? 0,
-        storage_gb: 0,
-        price_per_hour: pricePerHour,
-        price_per_month: Math.round(pricePerHour * 730 * 100) / 100,
-        price_source: "api",
-        regions: [targetRegion],
+    // Paginate through GetProducts results
+    do {
+      const command = new GetProductsCommand({
+        ServiceCode: "AmazonEC2",
+        Filters: [
+          { Type: "TERM_MATCH", Field: "regionCode", Value: targetRegion },
+          { Type: "TERM_MATCH", Field: "operatingSystem", Value: "Linux" },
+          { Type: "TERM_MATCH", Field: "tenancy", Value: "Shared" },
+          { Type: "TERM_MATCH", Field: "currentGeneration", Value: "Yes" },
+          { Type: "TERM_MATCH", Field: "capacitystatus", Value: "Used" },
+          { Type: "TERM_MATCH", Field: "preInstalledSw", Value: "NA" },
+        ],
+        MaxResults: 100,
+        NextToken: nextToken,
       });
 
-      seen.add(instanceType);
-    }
+      const response = await client.send(command);
+
+      for (const priceStr of response.PriceList ?? []) {
+        const size = parseProduct(priceStr, targetRegion);
+        if (size && !seen.has(size.id)) {
+          sizes.push(size);
+          seen.add(size.id);
+        }
+      }
+
+      nextToken = response.NextToken;
+    } while (nextToken);
 
     if (sizes.length === 0) {
-      logger.warn({ region: targetRegion }, "AWS pricing returned 0 matching instances");
+      logger.warn({ region: targetRegion }, "AWS Pricing API returned 0 matching instances");
       return null;
     }
 
     sizes.sort((a, b) => a.price_per_hour - b.price_per_hour);
+
+    logger.info({ region: targetRegion, count: sizes.length }, "AWS catalog fetch complete");
 
     return {
       provider: "aws",
@@ -211,7 +253,7 @@ export async function fetchAwsCatalog(
       ttl_seconds: config.ttl_seconds,
     };
   } catch (err) {
-    logger.error({ err, region: targetRegion }, "Failed to fetch AWS catalog");
+    logger.error({ err, region: targetRegion }, "Failed to fetch AWS catalog via Pricing API");
     return null;
   }
 }

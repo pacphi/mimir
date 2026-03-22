@@ -41,6 +41,23 @@ const SUBPROCESS_ENV_ALLOWLIST = [
   "SINDRI_BIN_PATH",
   "SINDRI_CLI_TIMEOUT_MS",
   "NODE_ENV",
+  // Provider credentials — CLIs read these from env for authentication.
+  // Without these the CLI auth pre-flight checks fail.
+  "FLY_API_TOKEN",
+  "RUNPOD_API_KEY",
+  "NORTHFLANK_API_TOKEN",
+  "E2B_API_KEY",
+  // DevPod cloud provider credentials
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+  "AWS_DEFAULT_REGION",
+  "AWS_SESSION_TOKEN",
+  "GOOGLE_APPLICATION_CREDENTIALS",
+  "AZURE_CLIENT_ID",
+  "AZURE_CLIENT_SECRET",
+  "AZURE_TENANT_ID",
+  "AZURE_SUBSCRIPTION_ID",
+  "DIGITALOCEAN_TOKEN",
 ] as const;
 
 /**

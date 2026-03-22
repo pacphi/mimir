@@ -1,15 +1,19 @@
 /**
  * Catalog refresh worker.
  *
- * Runs on a configurable interval to refresh compute catalogs for all
- * enabled providers. Follows the same setInterval pattern as cost.worker.ts.
+ * On startup:
+ *  1. Populate base (non-regional) cache for all enabled providers.
+ *  2. Pre-warm per-region caches for providers with regional pricing
+ *     (aws, gcp, azure, fly). This runs sequentially per region to avoid
+ *     overwhelming provider APIs but does not block the server.
  *
- * On startup: immediately populate cache for all enabled providers.
- * Then runs every 4 hours (shortest common interval across providers).
+ * Then runs every 4 hours to keep caches fresh.
  */
 
 import { logger } from "../lib/logger.js";
-import { refreshAll } from "../services/catalog/catalog.service.js";
+import { refreshAll, refreshProviderRegions } from "../services/catalog/catalog.service.js";
+import { getCatalogConfig } from "../services/catalog/config.js";
+import { getProviderRegionIds } from "../routes/providers.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Worker state
@@ -61,17 +65,43 @@ async function runCatalogCycle(): Promise<void> {
   try {
     logger.info("Catalog worker cycle starting");
 
+    // Phase 1: Refresh base (non-regional) catalogs for all providers
     const results = await refreshAll();
 
-    const durationMs = Date.now() - start;
     logger.info(
       {
-        durationMs,
+        durationMs: Date.now() - start,
         refreshed: results.size,
         providers: [...results.keys()],
       },
-      "Catalog worker cycle complete",
+      "Catalog worker: base catalogs refreshed",
     );
+
+    // Phase 2: Pre-warm per-region caches for regional providers
+    const config = getCatalogConfig();
+    const regionalProviders = Object.entries(config.providers).filter(
+      ([, cfg]) => cfg.enabled && cfg.supports_regional_pricing,
+    );
+
+    for (const [providerId] of regionalProviders) {
+      const regionIds = getProviderRegionIds(providerId);
+      if (regionIds.length === 0) continue;
+
+      logger.info(
+        { provider: providerId, regions: regionIds.length },
+        "Catalog worker: pre-warming regional caches",
+      );
+
+      const cached = await refreshProviderRegions(providerId, regionIds);
+
+      logger.info(
+        { provider: providerId, cached, total: regionIds.length },
+        "Catalog worker: regional pre-warm complete",
+      );
+    }
+
+    const durationMs = Date.now() - start;
+    logger.info({ durationMs }, "Catalog worker cycle complete");
   } catch (err) {
     logger.error({ err }, "Catalog worker cycle failed");
   } finally {

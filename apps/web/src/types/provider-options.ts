@@ -1,5 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Provider-specific option interfaces for the deployment wizard
+// Provider-specific option interfaces for the deployment wizard.
+// These mirror the Sindri v3 schema at sindri/v3/schemas/sindri.schema.json.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type ProviderId =
@@ -34,12 +35,12 @@ export function toDevpodBackend(id: ProviderId): string | undefined {
   return id.replace("devpod-", "");
 }
 
-// ─── Provider option shapes ─────────────────────────────────────────────────
+// ─── Provider option shapes (aligned with Sindri v3 schema) ─────────────────
 
 export interface FlyOptions {
   autoStop?: boolean;
   autoStart?: boolean;
-  cpuKind?: "shared" | "performance" | "dedicated";
+  cpuKind?: "shared" | "performance";
   sshPort?: number;
   org?: string;
   ha?: boolean;
@@ -47,12 +48,20 @@ export interface FlyOptions {
 
 export interface DockerOptions {
   docker_host?: string;
-  network?: string;
+  network?: "bridge" | "host" | "none";
   restart?: "no" | "always" | "on-failure" | "unless-stopped";
-  runtime?: string;
+  runtime?: "runc" | "sysbox-runc" | "auto";
   privileged?: boolean;
   ports?: string[];
-  dind?: boolean;
+  extraHosts?: string[];
+  dind?: boolean | DindConfig;
+}
+
+export interface DindConfig {
+  enabled?: boolean;
+  mode?: "auto" | "sysbox" | "privileged" | "socket";
+  storageDriver?: "auto" | "overlay2" | "fuse-overlayfs" | "vfs";
+  storageSize?: string;
 }
 
 export interface DevpodAwsOptions {
@@ -66,8 +75,6 @@ export interface DevpodAwsOptions {
 export interface DevpodGcpOptions {
   project?: string;
   zone?: string;
-  machineType?: string;
-  diskSize?: number;
   diskType?: "pd-standard" | "pd-ssd" | "pd-balanced";
 }
 
@@ -79,9 +86,9 @@ export interface DevpodAzureOptions {
   diskSize?: number;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface DevpodDigitaloceanOptions {
-  // Minimal — region+size handled in Step 4
+  size?: string;
+  diskSize?: number;
 }
 
 export interface E2bOptions {
@@ -104,21 +111,37 @@ export interface RunpodOptions {
   gpuCount?: number;
   containerDiskGb?: number;
   volumeSizeGb?: number;
+  volumeMountPath?: string;
   cloudType?: "COMMUNITY" | "SECURE";
   startSsh?: boolean;
   exposePorts?: string[];
   spotBid?: number;
   cpuOnly?: boolean;
+  cpuInstanceId?: string;
+  templateId?: string;
 }
 
 export interface NorthflankOptions {
   projectName?: string;
   instances?: number;
-  computePlan?: string;
   gpuType?: string;
   ports?: Array<{ port: number; protocol?: "TCP" | "UDP"; public?: boolean }>;
-  healthCheck?: { path?: string; port?: number; interval?: number };
-  autoScaling?: { min?: number; max?: number; targetCpu?: number };
+  healthCheck?: {
+    type?: "http" | "tcp" | "command";
+    path?: string;
+    port?: number;
+    command?: string[];
+    initialDelaySeconds?: number;
+    periodSeconds?: number;
+    failureThreshold?: number;
+  };
+  autoScaling?: {
+    enabled?: boolean;
+    min?: number;
+    max?: number;
+    targetCpu?: number;
+    targetMemory?: number;
+  };
   registryCredentials?: string;
 }
 
@@ -126,6 +149,10 @@ export interface KubernetesOptions {
   namespace?: string;
   storageClass?: string;
   context?: string;
+  ingress?: {
+    enabled?: boolean;
+    hostname?: string;
+  };
 }
 
 export type ProviderOptionsMap = {

@@ -12,6 +12,8 @@
  * GET  /api/v1/security/secrets              — secret rotation records
  * POST /api/v1/security/secrets              — upsert a secret rotation record
  * POST /api/v1/security/secrets/:id/rotate   — mark a secret as rotated
+ * GET  /api/v1/security/server-key            — get Mimir server public key
+ * POST /api/v1/security/server-key/generate  — generate server SSH keypair
  * GET  /api/v1/security/ssh-keys             — SSH key audit list
  * POST /api/v1/security/ssh-keys             — register an SSH key
  * POST /api/v1/security/ssh-keys/:id/revoke  — revoke an SSH key
@@ -44,6 +46,7 @@ import {
   revokeSshKey,
   getSshAuditSummary,
 } from "../services/security/index.js";
+import { ensureServerSshKey, getServerPublicKey } from "../services/ssh-keys.service.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Schemas
@@ -431,6 +434,59 @@ security.post("/secrets/:id/rotate", rateLimitDefault, async (c) => {
     logger.error({ err, id }, "Failed to mark secret rotated");
     return c.json(
       { error: "Internal Server Error", message: "Failed to mark secret rotated" },
+      500,
+    );
+  }
+});
+
+// ─── GET /api/v1/security/server-key ─────────────────────────────────────────
+
+security.get("/server-key", rateLimitDefault, async (c) => {
+  try {
+    const publicKey = await getServerPublicKey();
+    if (!publicKey) {
+      return c.json({
+        exists: false,
+        publicKey: null,
+        message: "No server SSH key found. Use POST /server-key/generate to create one.",
+      });
+    }
+
+    const parts = publicKey.split(" ");
+    return c.json({
+      exists: true,
+      publicKey,
+      keyType: parts[0] ?? "unknown",
+      comment: parts[2] ?? "",
+    });
+  } catch (err) {
+    logger.error({ err }, "Failed to read server SSH key");
+    return c.json(
+      { error: "Internal Server Error", message: "Failed to read server SSH key" },
+      500,
+    );
+  }
+});
+
+// ─── POST /api/v1/security/server-key/generate ──────────────────────────────
+
+security.post("/server-key/generate", rateLimitStrict, async (c) => {
+  try {
+    const keyInfo = await ensureServerSshKey();
+    return c.json({
+      publicKey: keyInfo.publicKey,
+      keyType: keyInfo.keyType,
+      comment: keyInfo.fingerprint,
+      path: keyInfo.path,
+      generated: keyInfo.generated,
+      message: keyInfo.generated
+        ? "SSH keypair generated successfully"
+        : "SSH keypair already exists",
+    });
+  } catch (err) {
+    logger.error({ err }, "Failed to generate server SSH key");
+    return c.json(
+      { error: "Internal Server Error", message: "Failed to generate server SSH key" },
       500,
     );
   }

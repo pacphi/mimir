@@ -42,12 +42,19 @@ export function DockerOptions({ options, onChange }: ProviderOptionsProps) {
       </div>
       <div>
         <Label className="text-xs">Network</Label>
-        <Input
-          className="mt-1"
-          placeholder="bridge"
+        <Select
           value={(options.network as string) ?? ""}
-          onChange={(e) => onChange("network", e.target.value || undefined)}
-        />
+          onValueChange={(v) => onChange("network", v || undefined)}
+        >
+          <SelectTrigger className="mt-1">
+            <SelectValue placeholder="Default (bridge)" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="bridge">Bridge</SelectItem>
+            <SelectItem value="host">Host</SelectItem>
+            <SelectItem value="none">None</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
       <div>
         <Label className="text-xs">Restart Policy</Label>
@@ -68,12 +75,19 @@ export function DockerOptions({ options, onChange }: ProviderOptionsProps) {
       </div>
       <div>
         <Label className="text-xs">Runtime</Label>
-        <Input
-          className="mt-1"
-          placeholder="runc"
+        <Select
           value={(options.runtime as string) ?? ""}
-          onChange={(e) => onChange("runtime", e.target.value || undefined)}
-        />
+          onValueChange={(v) => onChange("runtime", v || undefined)}
+        >
+          <SelectTrigger className="mt-1">
+            <SelectValue placeholder="Default (auto)" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="auto">Auto</SelectItem>
+            <SelectItem value="runc">runc</SelectItem>
+            <SelectItem value="sysbox-runc">sysbox-runc</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
       <div>
         <Label className="text-xs">Ports (comma-separated)</Label>
@@ -84,6 +98,25 @@ export function DockerOptions({ options, onChange }: ProviderOptionsProps) {
           onChange={(e) =>
             onChange(
               "ports",
+              e.target.value
+                ? e.target.value
+                    .split(",")
+                    .map((s) => s.trim())
+                    .filter(Boolean)
+                : undefined,
+            )
+          }
+        />
+      </div>
+      <div className="col-span-2">
+        <Label className="text-xs">Extra Hosts (comma-separated)</Label>
+        <Input
+          className="mt-1 font-mono text-xs"
+          placeholder="host.docker.internal:host-gateway"
+          value={((options.extraHosts as string[]) ?? []).join(", ")}
+          onChange={(e) =>
+            onChange(
+              "extraHosts",
               e.target.value
                 ? e.target.value
                     .split(",")

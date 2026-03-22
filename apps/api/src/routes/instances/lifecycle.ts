@@ -89,9 +89,11 @@ lifecycle.get("/:id/config", rateLimitDefault, async (c) => {
       return c.json({ error: "Not Found", message: `Instance '${id}' not found` }, 404);
     }
 
-    // Prefer the original yaml_content from the most recent successful deployment
+    // Prefer the original yaml_content from the most recent deployment.
+    // Include FAILED — the YAML is stored before the CLI runs, so even
+    // failed deployments contain the intended configuration.
     const latestDeployment = await db.deployment.findFirst({
-      where: { instance_id: id, status: { in: ["SUCCEEDED", "IN_PROGRESS"] } },
+      where: { instance_id: id, status: { in: ["SUCCEEDED", "IN_PROGRESS", "FAILED"] } },
       orderBy: { started_at: "desc" },
       select: { yaml_content: true, config_hash: true },
     });
@@ -276,7 +278,7 @@ lifecycle.post("/:id/redeploy", rateLimitStrict, requireRole("OPERATOR"), async 
     let yamlConfig = parseResult.data.config;
     if (!yamlConfig) {
       const latestDeployment = await db.deployment.findFirst({
-        where: { instance_id: id, status: { in: ["SUCCEEDED", "IN_PROGRESS"] } },
+        where: { instance_id: id, status: { in: ["SUCCEEDED", "IN_PROGRESS", "FAILED"] } },
         orderBy: { started_at: "desc" },
         select: { yaml_content: true },
       });
@@ -632,43 +634,54 @@ lifecycle.get("/:id/lifecycle", rateLimitDefault, async (c) => {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Reconstruct a Sindri-schema-compliant YAML from instance DB fields.
+ * Used as a last-resort fallback when no deployment YAML is available.
+ */
 function buildConfigYaml(instance: {
   id: string;
   name: string;
   provider: string;
   region: string | null;
+  distro: string | null;
   extensions: string[];
   config_hash: string | null;
   ssh_endpoint: string | null;
   status: string;
 }): string {
   const lines: string[] = [
-    `# Sindri instance configuration`,
+    `# Sindri instance configuration (reconstructed from database)`,
+    'version: "3.0"',
     `name: ${instance.name}`,
-    `provider: ${instance.provider}`,
+    "",
+    "deployment:",
+    `  provider: ${instance.provider}`,
   ];
 
-  if (instance.region) {
-    lines.push(`region: ${instance.region}`);
+  if (instance.distro) {
+    lines.push(`  distro: ${instance.distro}`);
   }
 
-  lines.push(`status: ${instance.status}`);
+  lines.push("");
 
   if (instance.extensions.length > 0) {
     lines.push("extensions:");
+    lines.push("  active:");
     for (const ext of instance.extensions) {
-      lines.push(`  - ${ext}`);
+      lines.push(`    - ${ext}`);
     }
+    lines.push("  auto_install: true");
   } else {
-    lines.push("extensions: []");
+    lines.push("extensions:");
+    lines.push("  active: []");
   }
 
-  if (instance.ssh_endpoint) {
-    lines.push(`ssh_endpoint: ${instance.ssh_endpoint}`);
-  }
-
-  if (instance.config_hash) {
-    lines.push(`config_hash: ${instance.config_hash}`);
+  // Emit providers section with region for non-local providers
+  if (instance.region && instance.provider !== "docker") {
+    lines.push("");
+    lines.push("providers:");
+    lines.push(`  ${instance.provider}:`);
+    lines.push(`    region: ${instance.region}`);
   }
 
   return lines.join("\n");

@@ -10,7 +10,7 @@ export function DevpodAwsOptions({ options, onChange }: ProviderOptionsProps) {
         <Label className="text-xs">Instance Type</Label>
         <Input
           className="mt-1 font-mono text-xs"
-          placeholder="t3.medium"
+          placeholder="c5.xlarge"
           value={(options.instanceType as string) ?? ""}
           onChange={(e) => onChange("instanceType", e.target.value || undefined)}
         />
@@ -20,7 +20,7 @@ export function DevpodAwsOptions({ options, onChange }: ProviderOptionsProps) {
         <Input
           className="mt-1"
           type="number"
-          placeholder="50"
+          placeholder="40"
           value={(options.diskSize as number) ?? ""}
           onChange={(e) =>
             onChange("diskSize", e.target.value ? Number(e.target.value) : undefined)

@@ -1,30 +1,39 @@
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { useQuery } from "@tanstack/react-query";
 import { useDeploymentWizardStore } from "@/stores/deploymentWizardStore";
 import { PROVIDER_CATALOG, type ProviderId, catalogProviderFor } from "@/types/provider-options";
 import { ProviderIcon, DevPodIcon } from "./ProviderIcons";
-import { useIntegrations } from "@/hooks/useIntegrations";
-
-/** Maps catalog provider ID to the pricing integration ID. */
-const PRICING_INTEGRATION_MAP: Record<string, string> = {
-  fly: "fly-pricing",
-  runpod: "runpod-pricing",
-  northflank: "northflank-pricing",
-  gcp: "gcp-pricing",
-  digitalocean: "digitalocean-pricing",
-};
+import { providersApi } from "@/api/deployments";
 
 export function Step1NameProvider() {
   const { name, provider, setName, setProvider } = useDeploymentWizardStore();
-  const { data: integrations } = useIntegrations();
 
-  /** Check if a provider has live pricing configured. */
-  function hasLivePricing(providerId: ProviderId): boolean | undefined {
+  const { data: availabilityData } = useQuery({
+    queryKey: ["providers", "availability"],
+    queryFn: () => providersApi.getAvailability(),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const availability = availabilityData?.availability;
+
+  /** Check if a provider's pricing service is available. */
+  function isProviderAvailable(providerId: ProviderId): boolean {
+    if (!availability) return true; // optimistic while loading
     const catalogProvider = catalogProviderFor(providerId);
-    const integrationId = PRICING_INTEGRATION_MAP[catalogProvider];
-    if (!integrationId || !integrations) return undefined; // no pricing integration for this provider
-    const integration = integrations.data.find((i) => i.id === integrationId);
-    return integration?.configured;
+    const entry = availability[catalogProvider];
+    return entry?.available ?? true;
+  }
+
+  /** Get the reason a provider is unavailable. */
+  function getUnavailableReason(providerId: ProviderId): string | undefined {
+    if (!availability) return undefined;
+    const catalogProvider = catalogProviderFor(providerId);
+    const entry = availability[catalogProvider];
+    if (entry?.available === false) {
+      return `${PROVIDER_CATALOG.find((p) => p.id === providerId)?.name ?? providerId} pricing credentials are not configured. Contact your administrator to enable this provider.`;
+    }
+    return undefined;
   }
 
   return (
@@ -55,18 +64,23 @@ export function Step1NameProvider() {
           {PROVIDER_CATALOG.map((p) => {
             const isDevpod = p.id.startsWith("devpod-");
             const isSelected = provider === p.id;
+            const available = isProviderAvailable(p.id);
+            const reason = getUnavailableReason(p.id);
             return (
               <button
                 key={p.id}
                 type="button"
+                disabled={!available}
                 className={cn(
-                  "rounded-lg border p-3 text-left transition-colors hover:border-primary focus:outline-none focus:ring-2 focus:ring-ring",
-                  isSelected
-                    ? "border-primary bg-primary/5 ring-1 ring-primary/20"
-                    : "border-input bg-background",
+                  "rounded-lg border p-3 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-ring",
+                  !available
+                    ? "border-input bg-muted/30 opacity-50 cursor-not-allowed"
+                    : isSelected
+                      ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                      : "border-input bg-background hover:border-primary",
                 )}
-                title={p.description}
-                onClick={() => setProvider(p.id as ProviderId)}
+                title={available ? p.description : reason}
+                onClick={() => available && setProvider(p.id as ProviderId)}
               >
                 <div className="relative mb-2">
                   <div className="flex items-center gap-1.5">
@@ -74,9 +88,11 @@ export function Step1NameProvider() {
                       <div
                         className={cn(
                           "w-8 h-8 rounded-md flex items-center justify-center shrink-0",
-                          isSelected
-                            ? "bg-primary/15 text-primary"
-                            : "bg-muted text-muted-foreground",
+                          !available
+                            ? "bg-muted text-muted-foreground/50"
+                            : isSelected
+                              ? "bg-primary/15 text-primary"
+                              : "bg-muted text-muted-foreground",
                         )}
                       >
                         <DevPodIcon size={18} />
@@ -85,9 +101,11 @@ export function Step1NameProvider() {
                     <div
                       className={cn(
                         "w-8 h-8 rounded-md flex items-center justify-center shrink-0",
-                        isSelected
-                          ? "bg-primary/15 text-primary"
-                          : "bg-muted text-muted-foreground",
+                        !available
+                          ? "bg-muted text-muted-foreground/50"
+                          : isSelected
+                            ? "bg-primary/15 text-primary"
+                            : "bg-muted text-muted-foreground",
                       )}
                     >
                       <ProviderIcon providerId={p.id} size={18} />
@@ -107,10 +125,17 @@ export function Step1NameProvider() {
                     </svg>
                   )}
                 </div>
-                <p className="text-sm font-medium leading-tight">{p.name}</p>
-                {hasLivePricing(p.id) === false && (
-                  <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
-                    Static pricing
+                <p
+                  className={cn(
+                    "text-sm font-medium leading-tight",
+                    !available && "text-muted-foreground",
+                  )}
+                >
+                  {p.name}
+                </p>
+                {!available && (
+                  <p className="text-[10px] text-amber-500 mt-0.5 leading-tight">
+                    Credentials required
                   </p>
                 )}
               </button>

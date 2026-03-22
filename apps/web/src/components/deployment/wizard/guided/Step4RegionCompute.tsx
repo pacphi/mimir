@@ -178,7 +178,11 @@ export function Step4RegionCompute() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [regions, store.region]);
 
-  // Fetch compute catalog
+  // Fetch compute catalog — wait until a region is selected.
+  // Backend returns immediately from cache:
+  //   source:"cached"   → exact regional pricing
+  //   source:"fallback" → base-region pricing (approximate), exact data loading
+  //   source:"loading"  → no data yet, polling until available
   const {
     data: catalog,
     isLoading: catalogLoading,
@@ -186,10 +190,17 @@ export function Step4RegionCompute() {
   } = useQuery({
     queryKey: ["compute-catalog", catalogProvider, store.region],
     queryFn: () => providersApi.getComputeCatalog(catalogProvider, store.region || undefined),
-    enabled: Boolean(catalogProvider),
+    enabled: Boolean(catalogProvider) && Boolean(store.region),
     staleTime: 5 * 60 * 1000,
+    retry: 1,
+    refetchInterval: (query) => {
+      // Poll while cache is warming up
+      if (query.state.data?.source === "loading") return 3_000;
+      return false;
+    },
   });
 
+  const catalogWarming = catalog?.source === "loading";
   const sizes = catalog?.sizes ?? [];
   const cpuSizes = sizes.filter((s) => s.category === "cpu");
   const gpuSizes = sizes.filter((s) => s.category === "gpu");
@@ -212,6 +223,7 @@ export function Step4RegionCompute() {
 
   function formatPrice(size: ComputeSize): string {
     if (size.price_source === "none") return "Free (local)";
+    if (size.price_per_hour == null) return "—";
     if (size.price_per_hour === 0) return "Free";
     return `$${size.price_per_hour.toFixed(3)}/hr`;
   }
@@ -339,7 +351,7 @@ export function Step4RegionCompute() {
           </div>
         )}
 
-        {!catalogLoading && !catalogError && sizes.length === 0 && (
+        {!catalogLoading && !catalogError && !catalogWarming && sizes.length === 0 && (
           <div className="mb-3 p-3 text-sm text-muted-foreground bg-muted/30 rounded-md border border-input">
             <p className="font-medium">No compute sizes available</p>
             <p className="text-xs mt-1">
@@ -349,14 +361,21 @@ export function Step4RegionCompute() {
           </div>
         )}
 
-        {catalogLoading ? (
-          <div className="grid grid-cols-2 gap-3">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-24 rounded-lg border border-input bg-muted/30 animate-pulse"
-              />
-            ))}
+        {catalogLoading || catalogWarming ? (
+          <div className="space-y-3">
+            {catalogWarming && (
+              <p className="text-xs text-muted-foreground animate-pulse">
+                Fetching pricing data for this region...
+              </p>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="h-24 rounded-lg border border-input bg-muted/30 animate-pulse"
+                />
+              ))}
+            </div>
           </div>
         ) : (
           <ScrollBox maxHeight={176} scrollStep={88} deps={sizes}>

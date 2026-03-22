@@ -26,6 +26,12 @@ export const providersApi = {
     return apiFetch<Provider[]>("/providers");
   },
 
+  getAvailability(): Promise<{
+    availability: Record<string, { available: boolean; reason?: string }>;
+  }> {
+    return apiFetch("/providers/availability");
+  },
+
   getRegions(
     provider: string,
   ): Promise<{ regions: Array<{ id: string; name: string; location: string }> }> {

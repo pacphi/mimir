@@ -59,6 +59,15 @@ export function RunpodOptions({ options, onChange }: ProviderOptionsProps) {
         />
       </div>
       <div>
+        <Label className="text-xs">Volume Mount Path</Label>
+        <Input
+          className="mt-1 font-mono text-xs"
+          placeholder="/workspace"
+          value={(options.volumeMountPath as string) ?? ""}
+          onChange={(e) => onChange("volumeMountPath", e.target.value || undefined)}
+        />
+      </div>
+      <div>
         <Label className="text-xs">Cloud Type</Label>
         <Select
           value={(options.cloudType as string) ?? ""}
@@ -79,7 +88,7 @@ export function RunpodOptions({ options, onChange }: ProviderOptionsProps) {
           className="mt-1"
           type="number"
           step="0.01"
-          placeholder="0.50"
+          placeholder="0 (on-demand)"
           value={(options.spotBid as number) ?? ""}
           onChange={(e) => onChange("spotBid", e.target.value ? Number(e.target.value) : undefined)}
         />
@@ -88,7 +97,7 @@ export function RunpodOptions({ options, onChange }: ProviderOptionsProps) {
         <Label className="text-xs">Expose Ports (comma-separated)</Label>
         <Input
           className="mt-1 font-mono text-xs"
-          placeholder="8080, 22"
+          placeholder="8080, 8888"
           value={((options.exposePorts as string[]) ?? []).join(", ")}
           onChange={(e) =>
             onChange(
@@ -101,6 +110,24 @@ export function RunpodOptions({ options, onChange }: ProviderOptionsProps) {
                 : undefined,
             )
           }
+        />
+      </div>
+      <div>
+        <Label className="text-xs">CPU Instance ID</Label>
+        <Input
+          className="mt-1 font-mono text-xs"
+          placeholder="Required if CPU Only"
+          value={(options.cpuInstanceId as string) ?? ""}
+          onChange={(e) => onChange("cpuInstanceId", e.target.value || undefined)}
+        />
+      </div>
+      <div>
+        <Label className="text-xs">Template ID</Label>
+        <Input
+          className="mt-1 font-mono text-xs"
+          placeholder="Optional"
+          value={(options.templateId as string) ?? ""}
+          onChange={(e) => onChange("templateId", e.target.value || undefined)}
         />
       </div>
       <div className="space-y-3 pt-5">

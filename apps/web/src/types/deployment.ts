@@ -118,7 +118,8 @@ export interface ComputeCatalogResponse {
     egress_free_gb: number;
   };
   fetched_at: string;
-  source: "live" | "cached" | "fallback";
+  source: "live" | "cached" | "fallback" | "loading";
+  message?: string;
 }
 
 export interface CostEstimate {

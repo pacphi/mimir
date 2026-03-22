@@ -31,27 +31,6 @@ export function DevpodGcpOptions({ options, onChange }: ProviderOptionsProps) {
         />
       </div>
       <div>
-        <Label className="text-xs">Machine Type</Label>
-        <Input
-          className="mt-1 font-mono text-xs"
-          placeholder="e2-medium"
-          value={(options.machineType as string) ?? ""}
-          onChange={(e) => onChange("machineType", e.target.value || undefined)}
-        />
-      </div>
-      <div>
-        <Label className="text-xs">Disk Size (GB)</Label>
-        <Input
-          className="mt-1"
-          type="number"
-          placeholder="50"
-          value={(options.diskSize as number) ?? ""}
-          onChange={(e) =>
-            onChange("diskSize", e.target.value ? Number(e.target.value) : undefined)
-          }
-        />
-      </div>
-      <div>
         <Label className="text-xs">Disk Type</Label>
         <Select
           value={(options.diskType as string) ?? ""}

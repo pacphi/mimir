@@ -12,6 +12,9 @@ import { toApiProvider, toDevpodBackend } from "@/types/provider-options";
  */
 const LOCAL_PROVIDERS = new Set(["docker"]);
 
+/** Default workspace mount path inside the container. */
+const DEFAULT_WORKSPACE_PATH = "/alt/home/developer/workspace";
+
 export type SindriDistro = "ubuntu" | "fedora" | "opensuse";
 
 export interface ImageConfig {
@@ -108,21 +111,64 @@ function renderInlineObject(obj: Record<string, unknown>): string {
 }
 
 /**
+ * Per-provider field name mappings from wizard keys → Sindri schema keys.
+ * Keys not listed here pass through unchanged.
+ */
+const PROVIDER_FIELD_MAPS: Record<string, Record<string, string>> = {
+  fly: {
+    autoStop: "autoStopMachines",
+    autoStart: "autoStartMachines",
+    org: "organization",
+    ha: "highAvailability",
+  },
+  devpod_aws: {
+    subnet: "subnetId",
+    securityGroup: "securityGroupId",
+  },
+};
+
+/**
+ * Apply a field-name mapping to a flat options object.
+ */
+function remapFields(
+  opts: Record<string, unknown>,
+  fieldMap: Record<string, string>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(opts)) {
+    result[fieldMap[k] ?? k] = v;
+  }
+  return result;
+}
+
+/**
  * Normalize provider options before YAML rendering.
- * The Sindri CLI expects `dind` as a struct (DindConfig), not a boolean.
+ * Maps wizard field names to Sindri schema field names and handles
+ * structural normalization (e.g. Docker `dind` boolean → struct).
  */
 function normalizeProviderOptions(
   provider: string,
   opts: Record<string, unknown>,
 ): Record<string, unknown> {
-  if (provider !== "docker") return opts;
-
   const normalized = { ...opts };
-  if (normalized.dind === true) {
-    normalized.dind = { enabled: true };
-  } else if (normalized.dind === false) {
-    delete normalized.dind;
+
+  // Docker: `dind` boolean → struct, strip docker_host (handled separately)
+  if (provider === "docker") {
+    delete normalized.docker_host;
+    if (normalized.dind === true) {
+      normalized.dind = { enabled: true };
+    } else if (normalized.dind === false) {
+      delete normalized.dind;
+    }
+    return normalized;
   }
+
+  // Apply per-provider field name remapping
+  const fieldMap = PROVIDER_FIELD_MAPS[provider];
+  if (fieldMap) {
+    return remapFields(normalized, fieldMap);
+  }
+
   return normalized;
 }
 
@@ -199,9 +245,10 @@ export function assembleYaml(input: AssemblerInput): string {
     if (input.vcpus) lines.push(`    cpus: ${input.vcpus}`);
   }
 
-  // Volumes — always include home_data, plus any user-defined volumes
+  // Volumes — Sindri schema uses `workspace` with `path` and `size`
   lines.push("  volumes:");
-  lines.push("    home_data:");
+  lines.push("    workspace:");
+  lines.push(`      path: ${DEFAULT_WORKSPACE_PATH}`);
   lines.push(`      size: "${input.homeDataSizeGb}GB"`);
   for (const vol of input.volumes) {
     if (!vol.name) continue;
@@ -244,27 +291,38 @@ export function assembleYaml(input: AssemblerInput): string {
     }
   }
 
-  // Provider options
+  // Providers — always emit for non-local providers so region and
+  // provider-specific options reach the Sindri CLI.
   const opts = input.providerOptions;
   const hasOpts = Object.keys(opts).length > 0;
   const devpodBackend = toDevpodBackend(input.provider);
+  const isCloudProvider = !LOCAL_PROVIDERS.has(apiProvider) && !devpodBackend;
 
-  if (hasOpts || devpodBackend) {
+  if (hasOpts || devpodBackend || isCloudProvider) {
     lines.push("");
     lines.push("providers:");
 
-    // Normalize provider options — some fields need special handling
-    const normalizedOpts = normalizeProviderOptions(apiProvider, opts);
+    // Normalize provider options — map wizard field names to Sindri schema names.
+    // For DevPod, use the backend name (e.g. "devpod_aws") for field map lookup.
+    const normKey = devpodBackend ? `devpod_${devpodBackend}` : apiProvider;
+    const normalizedOpts = normalizeProviderOptions(normKey, opts);
 
     if (devpodBackend) {
       lines.push("  devpod:");
       lines.push(`    type: ${devpodBackend}`);
+      if (input.region) {
+        lines.push(`    region: ${input.region}`);
+      }
       if (hasOpts) {
         lines.push(`    ${devpodBackend}:`);
         lines.push(renderObject(normalizedOpts, 3));
       }
     } else {
       lines.push(`  ${apiProvider}:`);
+      // Always include region for cloud providers
+      if (isCloudProvider && input.region && !normalizedOpts.region) {
+        lines.push(`    region: ${input.region}`);
+      }
       if (hasOpts) {
         lines.push(renderObject(normalizedOpts, 2));
       }

@@ -13,6 +13,7 @@
 import { redis } from "../../lib/redis.js";
 import { logger } from "../../lib/logger.js";
 import { getCatalogConfig } from "./config.js";
+import { resolveProviderKey } from "../../lib/credential-resolver.js";
 import type { CatalogFetcherConfig, ComputeCatalog, CostEstimate } from "./types.js";
 import { fetchFlyCatalog } from "./fetchers/fly.fetcher.js";
 import { fetchRunPodCatalog } from "./fetchers/runpod.fetcher.js";
@@ -54,6 +55,9 @@ function cacheKey(provider: string, region?: string): string {
   if (region) return `catalog:${provider}:${region}`;
   return `catalog:${provider}`;
 }
+
+/** Track in-flight background fetches to avoid duplicates. */
+const inFlightFetches = new Set<string>();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API
@@ -114,6 +118,69 @@ export async function refreshCatalog(
 }
 
 /**
+ * Read catalog from Redis cache only — never triggers a live fetch.
+ * Used by API routes so user requests are never blocked on slow provider APIs.
+ */
+export async function getCatalogFromCache(
+  provider: string,
+  region?: string,
+): Promise<ComputeCatalog | null> {
+  const config = getCatalogConfig();
+  const providerConfig = config.providers[provider];
+
+  if (!providerConfig?.enabled) return null;
+
+  const useRegionalKey = region && providerConfig.supports_regional_pricing;
+  const key = useRegionalKey ? cacheKey(provider, region) : cacheKey(provider);
+
+  try {
+    const cached = await redis.get(key);
+    if (cached) {
+      const catalog = JSON.parse(cached) as ComputeCatalog;
+      catalog.source = "cached";
+      if (region && !useRegionalKey) {
+        catalog.sizes = catalog.sizes.filter(
+          (s) => !s.regions || s.regions.length === 0 || s.regions.includes(region),
+        );
+      }
+      return catalog;
+    }
+  } catch {
+    // Redis unavailable
+  }
+
+  return null;
+}
+
+/**
+ * Trigger a background fetch for a provider + region, caching the result.
+ * Fire-and-forget — does not block the caller.
+ */
+export function triggerBackgroundFetch(provider: string, region?: string): void {
+  const config = getCatalogConfig();
+  const providerConfig = config.providers[provider];
+  if (!providerConfig?.enabled) return;
+
+  // Don't duplicate in-flight fetches
+  const key = region ? `${provider}:${region}` : provider;
+  if (inFlightFetches.has(key)) return;
+
+  inFlightFetches.add(key);
+  fetchAndCache(provider, providerConfig, region)
+    .then((catalog) => {
+      if (catalog) {
+        logger.info({ provider, region }, "Background catalog fetch complete");
+      }
+    })
+    .catch((err) => {
+      logger.error({ err, provider, region }, "Background catalog fetch failed");
+    })
+    .finally(() => {
+      inFlightFetches.delete(key);
+    });
+}
+
+/**
  * Refresh all enabled providers' catalogs (base/non-regional).
  */
 export async function refreshAll(): Promise<Map<string, ComputeCatalog>> {
@@ -138,6 +205,43 @@ export async function refreshAll(): Promise<Map<string, ComputeCatalog>> {
   }
 
   return results;
+}
+
+/**
+ * Refresh a provider's catalog across all configured regions.
+ * Fetches with limited concurrency to balance speed vs resource usage.
+ */
+export async function refreshProviderRegions(
+  provider: string,
+  regionIds: string[],
+  concurrency = 2,
+): Promise<number> {
+  const config = getCatalogConfig();
+  const providerConfig = config.providers[provider];
+  if (!providerConfig?.enabled || !providerConfig.supports_regional_pricing) return 0;
+
+  let cached = 0;
+
+  // Process in batches of `concurrency`
+  for (let i = 0; i < regionIds.length; i += concurrency) {
+    const batch = regionIds.slice(i, i + concurrency);
+    const results = await Promise.allSettled(
+      batch.map(async (region) => {
+        const catalog = await fetchAndCache(provider, providerConfig, region);
+        return { region, ok: !!catalog };
+      }),
+    );
+
+    for (const result of results) {
+      if (result.status === "fulfilled" && result.value.ok) {
+        cached++;
+      } else if (result.status === "rejected") {
+        logger.error({ err: result.reason, provider }, "Failed to refresh regional catalog");
+      }
+    }
+  }
+
+  return cached;
 }
 
 /**
@@ -179,6 +283,57 @@ export function getEnabledProviders(): string[] {
   return Object.entries(config.providers)
     .filter(([, cfg]) => cfg.enabled)
     .map(([id]) => id);
+}
+
+/**
+ * Check which providers have pricing credentials configured.
+ * Returns a map of provider ID → { available, reason }.
+ * Providers that don't need API keys (docker, kubernetes, devpod) are always available.
+ */
+export async function checkProviderAvailability(): Promise<
+  Record<string, { available: boolean; reason?: string }>
+> {
+  const config = getCatalogConfig();
+  const result: Record<string, { available: boolean; reason?: string }> = {};
+
+  for (const [providerId, cfg] of Object.entries(config.providers)) {
+    if (!cfg.enabled) {
+      result[providerId] = { available: false, reason: "Provider is disabled" };
+      continue;
+    }
+
+    // Providers with no API key requirement are always available
+    if (!cfg.api_key_env) {
+      result[providerId] = { available: true };
+      continue;
+    }
+
+    // Check if credentials are configured
+    const key = await resolveProviderKey(cfg.api_key_env);
+    if (!key) {
+      result[providerId] = {
+        available: false,
+        reason: `Pricing credentials not configured (${cfg.api_key_env})`,
+      };
+      continue;
+    }
+
+    // For AWS, also check secret key
+    if (cfg.secret_key_env) {
+      const secret = await resolveProviderKey(cfg.secret_key_env);
+      if (!secret) {
+        result[providerId] = {
+          available: false,
+          reason: `Pricing credentials not configured (${cfg.secret_key_env})`,
+        };
+        continue;
+      }
+    }
+
+    result[providerId] = { available: true };
+  }
+
+  return result;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

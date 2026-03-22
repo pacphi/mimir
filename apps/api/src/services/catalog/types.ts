@@ -45,6 +45,7 @@ export interface CostEstimate {
 export interface CatalogFetcherConfig {
   enabled: boolean;
   api_key_env?: string;
+  secret_key_env?: string;
   refresh_interval_ms: number;
   ttl_seconds: number;
   regions?: string[];

@@ -31,8 +31,8 @@ function mapToComputeSize(plan: NorthflankPlan): ComputeSize {
     vcpus: plan.cpu / 1000,
     memory_gb: plan.memory / 1024,
     storage_gb: plan.storage / 1024,
-    price_per_hour: plan.priceHourly,
-    price_per_month: plan.priceMonthly,
+    price_per_hour: plan.priceHourly ?? 0,
+    price_per_month: plan.priceMonthly ?? 0,
     price_source: "api",
   };
 }

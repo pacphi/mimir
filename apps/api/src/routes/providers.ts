@@ -12,7 +12,15 @@ import { Hono } from "hono";
 import { authMiddleware } from "../middleware/auth.js";
 import { rateLimitDefault, rateLimitStrict } from "../middleware/rateLimit.js";
 import { logger } from "../lib/logger.js";
-import { getCatalog, refreshCatalog, estimateCost } from "../services/catalog/catalog.service.js";
+import {
+  getCatalog,
+  getCatalogFromCache,
+  triggerBackgroundFetch,
+  refreshCatalog,
+  estimateCost,
+  checkProviderAvailability,
+} from "../services/catalog/catalog.service.js";
+import { getCatalogConfig } from "../services/catalog/config.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Static provider metadata (no pricing or VM sizes — served dynamically)
@@ -162,6 +170,15 @@ const PROVIDERS = [
 
 const VALID_PROVIDER_IDS = PROVIDERS.map((p) => p.id);
 
+/**
+ * Return the list of region IDs configured for a given provider.
+ * Used by the catalog worker to pre-warm per-region caches.
+ */
+export function getProviderRegionIds(providerId: string): string[] {
+  const provider = PROVIDERS.find((p) => p.id === providerId);
+  return provider?.regions.map((r) => r.id) ?? [];
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Router
 // ─────────────────────────────────────────────────────────────────────────────
@@ -175,6 +192,18 @@ providers.use("*", authMiddleware);
 providers.get("/", rateLimitDefault, (c) => {
   const list = PROVIDERS.map(({ regions: _regions, ...rest }) => rest);
   return c.json({ providers: list });
+});
+
+// ─── GET /api/v1/providers/availability ───────────────────────────────────────
+
+providers.get("/availability", rateLimitDefault, async (c) => {
+  try {
+    const availability = await checkProviderAvailability();
+    return c.json({ availability });
+  } catch (err) {
+    logger.error({ err }, "Failed to check provider availability");
+    return c.json({ error: "Internal Server Error" }, 500);
+  }
 });
 
 // ─── GET /api/v1/providers/:provider/regions ─────────────────────────────────
@@ -202,6 +231,48 @@ providers.get("/:provider/compute-catalog", rateLimitDefault, async (c) => {
   const region = c.req.query("region");
 
   try {
+    const config = getCatalogConfig();
+    const providerConfig = config.providers[providerId];
+    const isRegional = providerConfig?.supports_regional_pricing && region;
+
+    // For regional providers, serve from cache only — never block on a live
+    // fetch. getCatalogFromCache will return exact regional data if available,
+    // or fall back to the base (regionless) cache with source:"fallback".
+    if (isRegional) {
+      const cached = await getCatalogFromCache(providerId, region);
+
+      if (cached) {
+        // If serving fallback data, also trigger a background fetch for
+        // exact regional pricing to replace it.
+        if (cached.source === "fallback") {
+          triggerBackgroundFetch(providerId, region);
+        }
+
+        return c.json({
+          sizes: cached.sizes,
+          storage_pricing: { gb_per_month: cached.storage_price_gb_month },
+          network_pricing: {
+            egress_gb_price: cached.network_egress_gb_price,
+            egress_free_gb: cached.network_egress_free_gb,
+          },
+          fetched_at: cached.fetched_at,
+          source: cached.source,
+        });
+      }
+
+      // No data at all (not even base cache) — trigger background fetch
+      triggerBackgroundFetch(providerId, region);
+      return c.json(
+        {
+          sizes: [],
+          source: "loading",
+          message: `Compute catalog for '${providerId}' is being fetched. Please retry shortly.`,
+        },
+        202,
+      );
+    }
+
+    // Non-regional providers: synchronous fetch is fine (fast / static data)
     const catalog = await getCatalog(providerId, region ?? undefined);
     if (!catalog) {
       return c.json(
@@ -215,9 +286,7 @@ providers.get("/:provider/compute-catalog", rateLimitDefault, async (c) => {
 
     return c.json({
       sizes: catalog.sizes,
-      storage_pricing: {
-        gb_per_month: catalog.storage_price_gb_month,
-      },
+      storage_pricing: { gb_per_month: catalog.storage_price_gb_month },
       network_pricing: {
         egress_gb_price: catalog.network_egress_gb_price,
         egress_free_gb: catalog.network_egress_free_gb,

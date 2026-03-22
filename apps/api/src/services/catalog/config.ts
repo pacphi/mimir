@@ -35,6 +35,8 @@ const DEFAULT_CONFIG: CatalogConfig = {
     },
     aws: {
       enabled: true,
+      api_key_env: "PRICING_AWS_ACCESS_KEY_ID",
+      secret_key_env: "PRICING_AWS_SECRET_ACCESS_KEY",
       refresh_interval_ms: 24 * HOUR,
       ttl_seconds: 24 * 3600,
       supports_regional_pricing: true,

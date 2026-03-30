@@ -62,21 +62,21 @@
     "pnpm": ">=10.0.0"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.0.9",
-    "@tanstack/router-plugin": "^1.166.13",
+    "@tailwindcss/vite": "^4.2.2",
+    "@tanstack/router-plugin": "^1.167.9",
     "@types/geojson": "^7946.0.16",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
     "@types/supercluster": "^7.1.3",
     "@types/ws": "^8.5.14",
     "@vitejs/plugin-react": "^6.0.1",
-    "@vitest/coverage-v8": "^4.1.0",
+    "@vitest/coverage-v8": "^4.1.2",
     "eslint-plugin-react-hooks": "^7.0.1",
-    "jsdom": "^29.0.0",
-    "tailwindcss": "^4.0.9",
-    "typescript": "~5.9.3",
-    "vite": "^8.0.0",
-    "vitest": "^4.1.0",
+    "jsdom": "^29.0.1",
+    "tailwindcss": "^4.2.2",
+    "typescript": "~6.0.2",
+    "vite": "^8.0.3",
+    "vitest": "^4.1.2",
     "ws": "^8.18.1"
   }
 }

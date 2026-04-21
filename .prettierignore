@@ -8,3 +8,6 @@ apps/api/src/generated/
 apps/web/src/routeTree.gen.ts
 # pnpm lock file
 pnpm-lock.yaml
+# claude-flow session state
+.claude-flow/
+.swarm/

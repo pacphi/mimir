@@ -110,11 +110,14 @@ export async function getServerPublicKey(): Promise<string | null> {
  * Priority: AUTHORIZED_KEYS env var → server SSH key (auto-generated if needed).
  */
 export async function resolveAuthorizedKeys(): Promise<string | null> {
-  // 1. Check env var (explicit override)
+  // 1. Explicit override via env var (admin-configured user keys)
   const envValue = process.env.AUTHORIZED_KEYS;
   if (envValue && envValue.trim().length > 0) return envValue.trim();
 
-  // 2. Try to find or generate a server SSH key
+  // 2. Auto-generate a Mimir server keypair if none exists.
+  //    The public key is injected into deployed instances so Mimir (and anyone
+  //    who downloads the private key from the /security/server-key endpoint)
+  //    can SSH in.
   try {
     const keyInfo = await ensureServerSshKey();
     return keyInfo.publicKey;

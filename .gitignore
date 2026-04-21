@@ -46,3 +46,4 @@ apps/api/instances/
 *.key
 *.crt
 .claude/
+.gitnexus

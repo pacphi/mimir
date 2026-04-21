@@ -25,7 +25,6 @@ export function FlyOptions({ options, onChange }: ProviderOptionsProps) {
           <SelectContent>
             <SelectItem value="shared">Shared</SelectItem>
             <SelectItem value="performance">Performance</SelectItem>
-            <SelectItem value="dedicated">Dedicated</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -43,7 +42,7 @@ export function FlyOptions({ options, onChange }: ProviderOptionsProps) {
         <Input
           className="mt-1"
           type="number"
-          placeholder="22"
+          placeholder="10022"
           value={(options.sshPort as number) ?? ""}
           onChange={(e) => onChange("sshPort", e.target.value ? Number(e.target.value) : undefined)}
         />
@@ -51,14 +50,14 @@ export function FlyOptions({ options, onChange }: ProviderOptionsProps) {
       <div className="space-y-3 pt-5">
         <div className="flex items-center gap-2">
           <Switch
-            checked={(options.autoStop as boolean) ?? false}
+            checked={(options.autoStop as boolean) ?? true}
             onCheckedChange={(v) => onChange("autoStop", v)}
           />
           <Label className="text-xs">Auto Stop</Label>
         </div>
         <div className="flex items-center gap-2">
           <Switch
-            checked={(options.autoStart as boolean) ?? false}
+            checked={(options.autoStart as boolean) ?? true}
             onCheckedChange={(v) => onChange("autoStart", v)}
           />
           <Label className="text-xs">Auto Start</Label>

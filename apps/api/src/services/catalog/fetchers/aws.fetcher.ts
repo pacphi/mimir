@@ -103,8 +103,12 @@ async function createPricingClient(config: CatalogFetcherConfig): Promise<Pricin
 
   // Fall back to default credential chain (instance role, env vars, etc.)
   try {
-    return new PricingClient({ region: "us-east-1" });
+    const client = new PricingClient({ region: "us-east-1" });
+    // Eagerly resolve credentials to fail fast rather than at request time
+    await client.config.credentials();
+    return client;
   } catch {
+    logger.debug("No AWS credentials available — skipping AWS catalog fetch");
     return null;
   }
 }
@@ -193,7 +197,7 @@ export async function fetchAwsCatalog(
 
   const client = await createPricingClient(config);
   if (!client) {
-    logger.warn("No AWS credentials available for Pricing API");
+    logger.debug("AWS catalog skipped — no credentials configured");
     return null;
   }
 

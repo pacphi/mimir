@@ -45,11 +45,11 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/node": "^25.8.0",
+    "@types/node": "^25.9.0",
     "@types/pg": "^8.20.0",
     "@types/ws": "^8.5.14",
     "@vitest/coverage-v8": "^4.1.6",
-    "tsx": "^4.22.0",
+    "tsx": "^4.22.2",
     "typescript": "^6.0.3",
     "vitest": "^4.1.6"
   },

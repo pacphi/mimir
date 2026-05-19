@@ -25,17 +25,17 @@
     "postinstall": "chmod +x ../../node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true"
   },
   "dependencies": {
-    "@aws-sdk/client-pricing": "^3.1047.0",
-    "@hono/node-server": "^2.0.2",
+    "@aws-sdk/client-pricing": "^3.1049.0",
+    "@hono/node-server": "^2.0.3",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "@types/bcrypt": "^6.0.0",
     "bcrypt": "^6.0.0",
     "better-auth": "^1.6.11",
-    "hono": "^4.12.18",
+    "hono": "^4.12.19",
     "ioredis": "^5.10.1",
     "node-pty": "^1.1.0",
-    "pg": "^8.20.0",
+    "pg": "^8.21.0",
     "pino": "^10.3.1",
     "pino-pretty": "^13.0.0",
     "prisma": "^7.8.0",
@@ -45,11 +45,11 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/node": "^25.8.0",
+    "@types/node": "^25.9.0",
     "@types/pg": "^8.20.0",
     "@types/ws": "^8.5.14",
     "@vitest/coverage-v8": "^4.1.6",
-    "tsx": "^4.22.0",
+    "tsx": "^4.22.2",
     "typescript": "^6.0.3",
     "vitest": "^4.1.6"
   },

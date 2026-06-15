@@ -45,13 +45,13 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/node": "^25.9.1",
+    "@types/node": "^25.9.3",
     "@types/pg": "^8.20.0",
     "@types/ws": "^8.5.14",
-    "@vitest/coverage-v8": "^4.1.7",
-    "tsx": "^4.22.3",
+    "@vitest/coverage-v8": "^4.1.9",
+    "tsx": "^4.22.4",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.7"
+    "vitest": "^4.1.9"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Managed from pacphi/mise-dotfiles. Replaces Dependabot version updates (2026-10-21).",
+  "extends": [
+    "config:recommended"
+  ],
+  "minimumReleaseAge": "3 days",
+  "internalChecksFilter": "strict",
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": [
+      "security"
+    ]
+  },
+  "packageRules": [
+    {
+      "description": "npm: settings",
+      "matchCategories": [
+        "js"
+      ],
+      "schedule": [
+        "* 0-5 * * 1"
+      ]
+    },
+    {
+      "description": "npm: group dev-dependencies",
+      "matchCategories": [
+        "js"
+      ],
+      "groupName": "dev-dependencies",
+      "matchDepTypes": [
+        "devDependencies"
+      ]
+    },
+    {
+      "description": "npm: group production-dependencies",
+      "matchCategories": [
+        "js"
+      ],
+      "groupName": "production-dependencies",
+      "matchDepTypes": [
+        "dependencies"
+      ]
+    },
+    {
+      "description": "github-actions: settings",
+      "matchCategories": [
+        "ci"
+      ],
+      "schedule": [
+        "* 0-5 * * 1"
+      ]
+    }
+  ]
+}

@@ -6,7 +6,7 @@ settings:
 
 overrides:
   lodash@>=4.0.0 <4.17.23: 4.17.23
-  hono@<4.11.10: ^4.12.2
+  hono@<4.11.10: ^4.13.11
   minimatch@>=10.0.0 <10.2.3: '>=10.2.3'
   dompurify@<=3.3.3: '>=3.4.0'
   flatted@<3.4.2: '>=3.4.2'
@@ -1091,7 +1091,7 @@ packages:
     resolution: {integrity: sha512-Ut3y0dMMPWy6bZ2kVfx25EOVbZlm15dhF4mOsezMlhpNHy+4MkU1qN9Y6lnruYi4wPmFzimGX2X7LF/FwHli4A==}
     engines: {node: '>=20'}
     peerDependencies:
-      hono: ^4.12.2
+      hono: ^4.13.11
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}

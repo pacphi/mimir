@@ -23,7 +23,7 @@ COPY packages/ui ./packages/ui
 RUN pnpm --filter=@mimir/web run build
 
 # ── Stage 2: runtime (nginx) ──────────────────────────────────────────────────
-FROM nginx:1.28-alpine
+FROM nginx:1.29-alpine
 
 # Replace the default nginx config with one that handles SPA routing
 # and proxies /api/ and /ws/ to the api service.
